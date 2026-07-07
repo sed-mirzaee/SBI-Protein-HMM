@@ -14,13 +14,9 @@ specification in the original R code.
 
 # TODO: output structure for next steps
 # {
-#     "parameters": theta,
-#     "states": hidden_states,    ---> [0, 1, 1, ...]
-#     "observations": amino_acids ---> [0, 10, 4, ...],
-# }
-# {
-#     "sequence": [10, 1, 4, ...],
 #     "states": [0, 1, 1, ...]
+
+#     "sequence": [10, 1, 4, ...],
 #     "posterior_alpha": [0.03, 0.05, 0.12, ...],
 #     "posterior_other": [0.97, 0.95, 0.88, ...]
 # }
