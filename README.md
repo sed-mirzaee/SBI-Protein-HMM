@@ -7,7 +7,47 @@ Course project on simulation-based inference using Hidden Markov Models and Baye
 
 ## Installation
 
+
 ## Workflow
+
+                HMM
+
+                 │
+
+          Simulator
+
+                 │
+
+        Protein Sequence
+
+                 │
+
+        Forward-Backward
+       (Ground Truth Posterior)
+
+                 │
+
+      Training Dataset
+
+                 │
+
+            BayesFlow
+
+                 │
+
+      Neural Posterior Estimator
+
+                 │
+
+         New Protein Sequence
+
+                 │
+
+        Predicted Posterior
+
+                 │
+
+       Compare with Ground Truth
 
 ## Contributors
 
