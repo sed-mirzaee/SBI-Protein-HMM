@@ -217,6 +217,7 @@ class ProteinHMMSimulator:
                 "other": self.emit_other.copy(),
             },
         }
+    
 
 
 if __name__ == "__main__":
