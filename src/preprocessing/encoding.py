@@ -6,15 +6,7 @@ that can be used by a neural network.
 """
 
 import numpy as np
-
-
-# Use the same amino acid order as the simulator
-AMINO_ACIDS = np.array([
-    "A", "R", "N", "D", "C",
-    "E", "Q", "G", "H", "I",
-    "L", "K", "M", "F", "P",
-    "S", "T", "W", "Y", "V",
-])
+from src.configs.hmm_parameters import AMINO_ACIDS
 
 AA_TO_INDEX = {aa: i for i, aa in enumerate(AMINO_ACIDS)}
 
