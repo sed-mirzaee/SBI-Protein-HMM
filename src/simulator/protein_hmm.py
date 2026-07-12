@@ -1,8 +1,8 @@
-#          ************************************************************
-#          *       Simulation Based Inference - Project  work         *
-#          *    Inference of protein secondary structure motifs       *
-#          *                        05. July 2026                     *
-#          ************************************************************
+"""
+                 Simulation Based Inference - Project  work
+              Inference of protein secondary structure motifs
+                                  05. July 2026
+"""
 
 import numpy as np
 import pandas as pd

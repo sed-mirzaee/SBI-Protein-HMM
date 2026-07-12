@@ -2,33 +2,22 @@
 Forward-Backward algorithm for the two-state protein HMM.
 
 States:
-0 = alpha-helix
-1 = other
+0 = other
+1 = alpha-helix
 """
 
 import numpy as np
 
-
-TRANSITION_MATRIX = np.array([
-    [0.90, 0.10],  # from alpha-helix to [alpha-helix, other]
-    [0.05, 0.95],  # from other to [alpha-helix, other]
-])
-
-
-EMISSION_ALPHA = {
-    "A": 0.12, "R": 0.06, "N": 0.03, "D": 0.05, "C": 0.01,
-    "E": 0.09, "Q": 0.05, "G": 0.04, "H": 0.02, "I": 0.07,
-    "L": 0.12, "K": 0.06, "M": 0.03, "F": 0.04, "P": 0.02,
-    "S": 0.05, "T": 0.04, "W": 0.01, "Y": 0.03, "V": 0.06,
-}
+from src.configs.hmm_parameters import (
+    AMINO_ACIDS,
+    TRANSITION_MATRIX,
+    EMISSION_ALPHA,
+    EMISSION_OTHER,
+)
 
 
-EMISSION_OTHER = {
-    "A": 0.06, "R": 0.05, "N": 0.05, "D": 0.06, "C": 0.02,
-    "E": 0.05, "Q": 0.03, "G": 0.09, "H": 0.03, "I": 0.05,
-    "L": 0.08, "K": 0.06, "M": 0.02, "F": 0.04, "P": 0.06,
-    "S": 0.07, "T": 0.06, "W": 0.01, "Y": 0.04, "V": 0.07,
-}
+emission_alpha_dict = dict(zip(AMINO_ACIDS, EMISSION_ALPHA))
+emission_other_dict = dict(zip(AMINO_ACIDS, EMISSION_OTHER))
 
 
 def get_emission_probabilities(amino_acid):
@@ -36,17 +25,17 @@ def get_emission_probabilities(amino_acid):
     Return emission probabilities for one amino acid.
 
     Output order:
-    [P(amino_acid | alpha-helix), P(amino_acid | other)]
+    [P(amino_acid | other), P(amino_acid | alpha-helix)]
     """
 
     amino_acid = amino_acid.upper()
 
-    if amino_acid not in EMISSION_ALPHA:
+    if amino_acid not in emission_alpha_dict:
         raise ValueError(f"Invalid amino acid: {amino_acid}")
 
     return np.array([
-        EMISSION_ALPHA[amino_acid],
-        EMISSION_OTHER[amino_acid],
+        emission_other_dict[amino_acid],
+        emission_alpha_dict[amino_acid],
     ])
 
 
@@ -60,8 +49,8 @@ def forward_backward(sequence):
     Output:
     posterior: array with shape (sequence_length, 2)
 
-    posterior[:, 0] = P(alpha-helix | sequence)
-    posterior[:, 1] = P(other | sequence)
+    posterior[:, 0] = P(other | sequence)
+    posterior[:, 1] = P(alpha-helix | sequence)
     """
 
     if isinstance(sequence, str):
@@ -73,10 +62,10 @@ def forward_backward(sequence):
     backward = np.zeros((sequence_length, 2))
 
     # The project says every sequence starts in "other"
-    initial_probabilities = np.array([0.0, 1.0])
+    initial_probabilities = np.array([1.0, 0.0])
 
     # ---------- Forward pass ----------
-    forward[0] = initial_probabilities * get_emission_probabilities(sequence[0])
+    forward[0] = (initial_probabilities * get_emission_probabilities(sequence[0]))
     forward[0] = forward[0] / forward[0].sum()
 
     for t in range(1, sequence_length):
