@@ -29,14 +29,17 @@ from torch.utils.data import DataLoader, TensorDataset
 from src.simulator.protein_hmm import simulate_hmm
 from src.preprocessing.encoding import one_hot_encode_sequence
 from src.inference.forward_backward import forward_backward
-
+from src.configs.config import (N_AMINO_ACIDS,
+                                N_STATES,
+                                MIN_SEQUENCE_LENGTH,
+                                MAX_SEQUENCE_LENGTH,
+                                N_TRAIN_SAMPLES,
+                                N_VALIDATION_SAMPLES,
+                                N_TEST_SAMPLES)
 
 DEFAULT_MODEL_PATH = Path("outputs/models/amortized_posterior.pt")
 DEFAULT_HISTORY_PATH = Path("outputs/models/training_history.json")
 SEQUENCE_LENGTH = 100
-N_AMINO_ACIDS = 20
-N_STATES = 2
-
 
 class BiLSTMPosteriorEstimator(nn.Module):
     """BiLSTM model for posterior state probability estimation.
@@ -86,54 +89,55 @@ class BiLSTMPosteriorEstimator(nn.Module):
 
         return logits
 
+#
+# def simulate_training_sample(
+#     sequence_length: int = SEQUENCE_LENGTH,
+# ) -> tuple[np.ndarray, np.ndarray]:
+#     """Generate one training sample from the existing repo pipeline.
+#
+#     Returns
+#     -------
+#     encoded_sequence:
+#         shape (sequence_length, 20)
+#
+#     state_probabilities:
+#         shape (sequence_length, 2)
+#
+#     Column order:
+#         0 = other
+#         1 = alpha
+#     """
+#
+#     protein = simulate_hmm(sequence_length)
+#     sequence = protein["AminoAcid"].tolist()
+#
+#     encoded_sequence = one_hot_encode_sequence(sequence).astype(np.float32)
+#     state_probabilities = forward_backward(sequence).astype(np.float32)
+#
+#     return encoded_sequence, state_probabilities
+#
+#
+# def make_dataset(
+#     num_samples: int,
+#     sequence_length: int = SEQUENCE_LENGTH,
+# ) -> tuple[np.ndarray, np.ndarray]:
+#     """Create an offline simulated dataset."""
+#
+#     xs = []
+#     ys = []
+#
+#     for _ in range(num_samples):
+#         x, y = simulate_training_sample(sequence_length=sequence_length)
+#         xs.append(x)
+#         ys.append(y)
+#
+#     return np.stack(xs, axis=0), np.stack(ys, axis=0)
 
-def simulate_training_sample(
-    sequence_length: int = SEQUENCE_LENGTH,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Generate one training sample from the existing repo pipeline.
-
-    Returns
-    -------
-    encoded_sequence:
-        shape (sequence_length, 20)
-
-    state_probabilities:
-        shape (sequence_length, 2)
-
-    Column order:
-        0 = other
-        1 = alpha
-    """
-
-    protein = simulate_hmm(sequence_length)
-    sequence = protein["AminoAcid"].tolist()
-
-    encoded_sequence = one_hot_encode_sequence(sequence).astype(np.float32)
-    state_probabilities = forward_backward(sequence).astype(np.float32)
-
-    return encoded_sequence, state_probabilities
-
-
-def make_dataset(
-    num_samples: int,
-    sequence_length: int = SEQUENCE_LENGTH,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Create an offline simulated dataset."""
-
-    xs = []
-    ys = []
-
-    for _ in range(num_samples):
-        x, y = simulate_training_sample(sequence_length=sequence_length)
-        xs.append(x)
-        ys.append(y)
-
-    return np.stack(xs, axis=0), np.stack(ys, axis=0)
-
-
+#SED: Change by Mask
 def soft_cross_entropy(
     logits: torch.Tensor,
     target_probabilities: torch.Tensor,
+    mask: torch.Tensor,
 ) -> torch.Tensor:
     """Cross-entropy for soft Forward-Backward targets.
 
@@ -145,48 +149,114 @@ def soft_cross_entropy(
     """
 
     log_probs = torch.log_softmax(logits, dim=-1)
-    loss = -(target_probabilities * log_probs).sum(dim=-1).mean()
+    position_loss = -(target_probabilities * log_probs).sum(dim=-1)
+    valid_loss = position_loss[mask]
 
-    return loss
-
+    return valid_loss.mean()
 
 def evaluate_model(
     model: nn.Module,
     data_loader: DataLoader,
     device: torch.device,
 ) -> dict[str, float]:
-    """Evaluate loss, MAE and MSE against Forward-Backward targets."""
+    """
+    Evaluate loss, MAE, and MSE against Forward-Backward targets.
+
+    Only real sequence positions are included.
+    Padded positions are ignored using the mask.
+    """
 
     model.eval()
 
-    total_loss = 0.0
-    total_mae = 0.0
-    total_mse = 0.0
-    total_batches = 0
+    total_loss_sum = 0.0
+    total_absolute_error = 0.0
+    total_squared_error = 0.0
+    total_valid_positions = 0
 
     with torch.no_grad():
-        for x_batch, y_batch in data_loader:
+
+        for x_batch, y_batch, mask_batch in data_loader:
+
             x_batch = x_batch.to(device)
             y_batch = y_batch.to(device)
+            mask_batch = mask_batch.to(device)
 
             logits = model(x_batch)
-            probs = torch.softmax(logits, dim=-1)
+            probabilities = torch.softmax(logits, dim=-1)
 
-            loss = soft_cross_entropy(logits, y_batch)
-            mae = torch.mean(torch.abs(probs - y_batch))
-            mse = torch.mean((probs - y_batch) ** 2)
+            # Loss for each sequence position:
+            # shape = (batch_size, max_sequence_length)
+            log_probabilities = torch.log_softmax(
+                logits,
+                dim=-1,
+            )
 
-            total_loss += float(loss.item())
-            total_mae += float(mae.item())
-            total_mse += float(mse.item())
-            total_batches += 1
+            position_loss = -(
+                y_batch * log_probabilities
+            ).sum(dim=-1)
+
+            # Error for each output probability:
+            # shape = (batch_size, max_sequence_length, 2)
+            absolute_error = torch.abs(
+                probabilities - y_batch
+            )
+
+            squared_error = (
+                probabilities - y_batch
+            ) ** 2
+
+            # Expand mask from:
+            # (batch, length)
+            # to:
+            # (batch, length, 1)
+            probability_mask = mask_batch.unsqueeze(-1)
+
+            total_loss_sum += float(
+                position_loss[mask_batch].sum().item()
+            )
+
+            total_absolute_error += float(
+                absolute_error[
+                    probability_mask.expand_as(absolute_error)
+                ].sum().item()
+            )
+
+            total_squared_error += float(
+                squared_error[
+                    probability_mask.expand_as(squared_error)
+                ].sum().item()
+            )
+
+            valid_positions = int(mask_batch.sum().item())
+
+            total_valid_positions += valid_positions
+
+    # Loss: one loss value per valid sequence position
+    mean_loss = (
+        total_loss_sum
+        / max(total_valid_positions, 1)
+    )
+
+    # MAE and MSE: two probability values per position
+    total_valid_probabilities = (
+        total_valid_positions * N_STATES
+    )
+
+    mean_mae = (
+        total_absolute_error
+        / max(total_valid_probabilities, 1)
+    )
+
+    mean_mse = (
+        total_squared_error
+        / max(total_valid_probabilities, 1)
+    )
 
     return {
-        "loss": total_loss / max(total_batches, 1),
-        "mae": total_mae / max(total_batches, 1),
-        "mse": total_mse / max(total_batches, 1),
+        "loss": mean_loss,
+        "mae": mean_mae,
+        "mse": mean_mse,
     }
-
 
 def train_model(
     num_train: int = 1000,
@@ -216,25 +286,51 @@ def train_model(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    print("Generating training data...")
-    x_train, y_train = make_dataset(num_train, sequence_length=sequence_length)
+    # print("Generating training data...")
+    # x_train, y_train = make_dataset(num_train, sequence_length=sequence_length)
+    #
+    # print("Generating validation data...")
+    # x_val, y_val = make_dataset(num_val, sequence_length=sequence_length)
 
-    print("Generating validation data...")
-    x_val, y_val = make_dataset(num_val, sequence_length=sequence_length)
+    # SED: Change Make Data --> Load
+    print("Loading training data...")
+
+    train_data = np.load(
+        f"../../data/synthetic/train_{N_TRAIN_SAMPLES}.npz"
+    )
+
+    x_train = train_data["x"]
+    y_train = train_data["y"]
+    train_mask = train_data["mask"]
+
+    print("Loading validation data...")
+
+    val_data = np.load(
+        f"../../data/synthetic/validation_{N_TRAIN_SAMPLES}.npz"
+    )
+
+    x_val = val_data["x"]
+    y_val = val_data["y"]
+    val_mask = val_data["mask"]
+
 
     print("x_train shape:", x_train.shape)
     print("y_train shape:", y_train.shape)
+    print("train_mask shape:", train_mask.shape)
     print("x_val shape:", x_val.shape)
     print("y_val shape:", y_val.shape)
+    print("val_mask shape:", val_mask.shape)
 
     train_dataset = TensorDataset(
         torch.tensor(x_train, dtype=torch.float32),
         torch.tensor(y_train, dtype=torch.float32),
+        torch.tensor(train_mask, dtype=torch.bool),
     )
 
     val_dataset = TensorDataset(
         torch.tensor(x_val, dtype=torch.float32),
         torch.tensor(y_val, dtype=torch.float32),
+        torch.tensor(val_mask, dtype=torch.bool),
     )
 
     train_loader = DataLoader(
@@ -272,14 +368,16 @@ def train_model(
         model.train()
         train_losses = []
 
-        for x_batch, y_batch in train_loader:
+        # SED: Change for mask
+        for x_batch, y_batch, mask_batch in train_loader:
             x_batch = x_batch.to(device)
             y_batch = y_batch.to(device)
+            mask_batch = mask_batch.to(device)
 
             optimizer.zero_grad()
 
             logits = model(x_batch)
-            loss = soft_cross_entropy(logits, y_batch)
+            loss = soft_cross_entropy(logits, y_batch, mask_batch)
 
             loss.backward()
             optimizer.step()

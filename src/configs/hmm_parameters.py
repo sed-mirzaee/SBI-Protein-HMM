@@ -10,6 +10,14 @@ STATES = np.array([
     "alpha"
 ])
 
+STATE_TO_INDEX = {
+    state: index
+    for index, state in enumerate(STATES)
+}
+
+OTHER_STATE_INDEX = STATE_TO_INDEX["other"]
+ALPHA_STATE_INDEX = STATE_TO_INDEX["alpha"]
+
 # Amino acids
 AMINO_ACIDS = np.array([
     "A", "R", "N", "D", "C",

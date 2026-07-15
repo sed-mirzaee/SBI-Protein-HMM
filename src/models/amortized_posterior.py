@@ -152,7 +152,7 @@ def predict_from_sequence(
     model_path: str | Path = DEFAULT_MODEL_PATH,
     device: torch.device | None = None,
 ) -> np.ndarray:
-    """Predict posterior probabilities from a raw amino-acid sequence."""
+    """Predict posterior probabilities from a synthetic amino-acid sequence."""
 
     encoded_sequence = one_hot_encode_sequence(sequence)
 
