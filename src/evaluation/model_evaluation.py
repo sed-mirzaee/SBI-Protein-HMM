@@ -28,7 +28,7 @@ def check_shapes(y_true, y_pred):
         )
 
     if y_true.shape[-1] != 2:
-        raise ValueError("Last dimension must be 2: [alpha-helix, other].")
+        raise ValueError("Last dimension must be 2: [other, alpha-helix].")
 
     return y_true, y_pred
 
@@ -70,8 +70,8 @@ def state_accuracy(y_true, y_pred):
     """
     Convert probabilities to states using argmax and compute accuracy.
 
-    State 0 = alpha-helix
-    State 1 = other
+    State 0 = other
+    State 1 = alpha-helix
     """
 
     y_true, y_pred = check_shapes(y_true, y_pred)
