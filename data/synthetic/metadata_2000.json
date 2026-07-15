@@ -1,0 +1,23 @@
+{
+  "length_distribution": "discrete uniform",
+  "minimum_length": 50,
+  "maximum_length": 250,
+  "state_order": [
+    "other",
+    "alpha"
+  ],
+  "splits": {
+    "train": {
+      "num_samples": 2000,
+      "seed": 202605
+    },
+    "validation": {
+      "num_samples": 250,
+      "seed": 202606
+    },
+    "test": {
+      "num_samples": 250,
+      "seed": 202607
+    }
+  }
+}
