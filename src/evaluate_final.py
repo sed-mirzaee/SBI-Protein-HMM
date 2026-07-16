@@ -175,6 +175,8 @@ def evaluate_hmm_on_real_proteins(
 
     hmm_correct = 0
     total_positions = 0
+    alpha_count = 0
+    other_count = 0
     evaluated = 0
     skipped = 0
     example: dict[str, np.ndarray | str] | None = None
@@ -198,6 +200,9 @@ def evaluate_hmm_on_real_proteins(
             # H = alpha = 1
             # C/E = other = 0
             true_states = annotation_to_binary(annotation)
+            # Count the true class frequencies.
+            alpha_count += int(np.sum(true_states == 1))
+            other_count += int(np.sum(true_states == 0))
 
             # HMM posterior probabilities for the real sequence
             hmm_posterior = forward_backward(
@@ -234,14 +239,27 @@ def evaluate_hmm_on_real_proteins(
             "No valid real proteins were evaluated. "
             "Check seq/sst3 columns and amino-acid symbols."
         )
+    hmm_accuracy = float(hmm_correct / total_positions)
+    alpha_fraction = float(alpha_count / total_positions)
+    other_fraction = float(other_count / total_positions)
 
     metrics: dict[str, float | int] = {
         "requested_proteins": sample_size,
         "evaluated_proteins": evaluated,
         "skipped_proteins": skipped,
         "evaluated_positions": total_positions,
-        "hmm_state_accuracy": float(
-            hmm_correct / total_positions
+        "hmm_state_accuracy": hmm_accuracy,
+        "alpha_count": alpha_count,
+        "other_count": other_count,
+        "alpha_fraction": alpha_fraction,
+        "other_fraction": other_fraction,
+
+        # Accuracy of a trivial classifier that always predicts "other".
+        "always_other_baseline": other_fraction,
+
+        # Positive means HMM is better than the trivial baseline.
+        "improvement_over_baseline": float(
+            hmm_accuracy - other_fraction
         ),
     }
 
@@ -476,6 +494,22 @@ def main() -> None:
         print(
             f"HMM state accuracy: "
             f"{hmm_metrics['hmm_state_accuracy']:.4f}"
+        )
+        print(
+            f"Alpha residues:      "
+            f"{hmm_metrics['alpha_fraction']:.2%}"
+        )
+        print(
+            f"Other residues:      "
+            f"{hmm_metrics['other_fraction']:.2%}"
+        )
+        print(
+            f"Always-other baseline: "
+            f"{hmm_metrics['always_other_baseline']:.4f}"
+        )
+        print(
+            f"HMM improvement over baseline: "
+            f"{hmm_metrics['improvement_over_baseline']:+.4f}"
         )
 
         print_hmm_example(example)
