@@ -1,0 +1,7 @@
+{
+  "requested_proteins": 1000,
+  "evaluated_proteins": 1000,
+  "skipped_proteins": 0,
+  "evaluated_positions": 257971,
+  "hmm_state_accuracy": 0.7194219505293231
+}
