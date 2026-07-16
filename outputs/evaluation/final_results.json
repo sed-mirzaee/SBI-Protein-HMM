@@ -1,0 +1,14 @@
+{
+  "synthetic_test": {
+    "num_sequences": 2000,
+    "posterior_mse": 3.9578964962750804e-05
+  },
+  "real_protein_test": {
+    "requested_proteins": 500,
+    "evaluated_proteins": 500,
+    "skipped_proteins": 0,
+    "evaluated_positions": 134993,
+    "hmm_state_accuracy": 0.7206595897565059,
+    "nn_state_accuracy": 0.7202373456401443
+  }
+}
