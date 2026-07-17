@@ -26,16 +26,15 @@ from src.bayesflow_model.summary_network import (
     ProteinBiLSTMSequenceNetwork,
 )
 from src.bayesflow_model.data import load_split
+from src.configs.config import N_TRAIN_SAMPLES
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-MODEL_PATH = (
-    PROJECT_ROOT
-    / "outputs"
-    / "native_bayesflow"
-    / "protein_bayesflow.keras"
+TRAINING_OUTPUT_DIR = (
+    PROJECT_ROOT / "outputs" / "native_bayesflow" / f"training_{N_TRAIN_SAMPLES}"
 )
+MODEL_PATH = TRAINING_OUTPUT_DIR / f"protein_bayesflow_{N_TRAIN_SAMPLES}.keras"
 
 OUTPUT_DIR = (
     PROJECT_ROOT
@@ -44,12 +43,9 @@ OUTPUT_DIR = (
     / "evaluation"
 )
 
-METRICS_PATH = OUTPUT_DIR / "test_metrics.csv"
+METRICS_PATH = OUTPUT_DIR / f"test_metrics_{N_TRAIN_SAMPLES}.csv"
 
-PREDICTIONS_PATH = (
-    OUTPUT_DIR
-    / "test_predictions.npz"
-)
+PREDICTIONS_PATH = OUTPUT_DIR / f"test_predictions_{N_TRAIN_SAMPLES}.npz"
 
 
 def predict_batch(
