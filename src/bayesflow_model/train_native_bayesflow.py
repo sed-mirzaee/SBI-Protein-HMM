@@ -4,6 +4,7 @@ Train the native BayesFlow protein posterior estimator.
 
 from __future__ import annotations
 
+from src.configs.config import N_TRAIN_SAMPLES
 import os
 from pathlib import Path
 
@@ -31,17 +32,15 @@ OUTPUT_DIR = (
     PROJECT_ROOT
     / "outputs"
     / "native_bayesflow"
-    / "training_2000"
+    / f"training_{N_TRAIN_SAMPLES}"
 )
 
 MODEL_PATH = (
-    OUTPUT_DIR
-    / "protein_bayesflow_2000.keras"
+    OUTPUT_DIR / f"protein_bayesflow_{N_TRAIN_SAMPLES}.keras"
 )
 
 HISTORY_PATH = (
-    OUTPUT_DIR
-    / "training_history_2000.npz"
+    OUTPUT_DIR / f"training_history_{N_TRAIN_SAMPLES}.npz"
 )
 
 
