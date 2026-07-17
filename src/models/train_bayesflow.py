@@ -295,9 +295,13 @@ def train_model(
     # SED: Change Make Data --> Load
     print("Loading training data...")
 
-    train_data = np.load(
-        f"../../data/synthetic/train_{N_TRAIN_SAMPLES}.npz"
-    )
+    PROJECT_ROOT = Path(__file__).resolve().parents[2]
+    DATA_DIR = PROJECT_ROOT / "data" / "synthetic"
+
+    train_path = DATA_DIR / f"train_{N_TRAIN_SAMPLES}.npz"
+    val_path = DATA_DIR / f"validation_{N_TRAIN_SAMPLES}.npz"
+
+    train_data = np.load(train_path)
 
     x_train = train_data["x"]
     y_train = train_data["y"]
@@ -305,9 +309,7 @@ def train_model(
 
     print("Loading validation data...")
 
-    val_data = np.load(
-        f"../../data/synthetic/validation_{N_TRAIN_SAMPLES}.npz"
-    )
+    val_data = np.load(val_path)
 
     x_val = val_data["x"]
     y_val = val_data["y"]
