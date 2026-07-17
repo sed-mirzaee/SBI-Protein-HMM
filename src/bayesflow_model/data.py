@@ -244,18 +244,20 @@ def prepare_bayesflow_data(
     Prepare stored pairs for the BayesFlow Adapter.
 
     protein_sequence:
-        x, the padded one-hot amino-acid sequence.
+        Padded one-hot amino-acid sequences.
 
     state_probabilities:
-        y, the Forward–Backward posterior targets.
+        Forward-Backward posterior probabilities.
 
     encoder_mask:
-        Mask forwarded to the BiLSTM summary network.
+        Padding mask used by the BiLSTM summary network.
 
     target_mask:
-        Mask forwarded to the inference component.
+        Padding mask forwarded to the inference network.
 
-    No Forward–Backward calculation is performed here.
+    loss_weight:
+        Temporal sample weights used to exclude padding
+        from the BayesFlow scoring-rule loss.
     """
 
     data = load_split(
@@ -269,10 +271,14 @@ def prepare_bayesflow_data(
         "protein_sequence": data["x"],
         "state_probabilities": data["y"],
 
-        # Same values, but different roles.
         "encoder_mask": sequence_mask.copy(),
         "target_mask": sequence_mask.copy(),
 
-        # Retained for validation and later evaluation.
+        # Shape: (samples, sequence_length, 1)
+        # This broadcasts over the final state dimension.
+        "loss_weight": sequence_mask.astype(
+            np.float32
+        )[..., None],
+
         "sequence_lengths": data["lengths"],
     }

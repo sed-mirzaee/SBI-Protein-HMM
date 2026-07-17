@@ -1,9 +1,12 @@
-"""Official BayesFlow Adapter for offline protein training pairs."""
+"""
+Official BayesFlow Adapter for offline protein training pairs.
+"""
 
 from __future__ import annotations
 
 import os
 
+# Must be set before importing BayesFlow or Keras.
 os.environ.setdefault(
     "KERAS_BACKEND",
     "torch",
@@ -14,32 +17,42 @@ import bayesflow as bf
 
 def build_protein_adapter() -> bf.adapters.Adapter:
     """
-    Map project-specific keys to BayesFlow canonical keys.
+    Map project-specific arrays to BayesFlow canonical keys.
 
-    Raw keys:
-        protein_sequence
-        state_probabilities
-        encoder_mask
-        target_mask
+    Raw project keys
+    ----------------
+    protein_sequence:
+        Padded one-hot amino-acid sequences.
 
-    Adapted keys:
-        summary_variables
-        inference_variables
-        summary_mask
-        inference_mask
+    state_probabilities:
+        Forward-Backward posterior probabilities.
+
+    encoder_mask:
+        Mask used by the BiLSTM summary network.
+
+    target_mask:
+        Mask forwarded to the inference network.
+
+    loss_weight:
+        Temporal sample weights used to exclude padding
+        from the scoring-rule loss.
+
+    Adapted BayesFlow keys
+    ----------------------
+    summary_variables
+    inference_variables
+    summary_mask
+    inference_mask
+    sample_weight
     """
 
     return bf.approximators.Approximator.build_adapter(
-        # y: Forward–Backward probabilities used as targets.
         inference_variables="state_probabilities",
-
-        # x: padded one-hot protein sequences.
         summary_variables="protein_sequence",
 
-        # Forwarded as mask=... to the summary network.
         summary_mask="encoder_mask",
-
-        # Forwarded as mask=... to the later
-        # inference network.
         inference_mask="target_mask",
+
+        # Important: padding must not contribute to loss.
+        sample_weight="loss_weight",
     )

@@ -64,19 +64,147 @@ class SequenceConditionSubnet(keras.layers.Layer):
             activation="relu",
         )
 
-    def call(
-        self,
-        sequence_features,
-        mask=None,
-        training: bool = False,
-        **kwargs,
-    ):
+    def build(self, input_shape) -> None:
         """
-        Convert contextual sequence features to one condition vector.
+        Explicitly build the internal layers.
+
+        Parameters
+        ----------
+        input_shape:
+            Shape of the sequence features:
+
+            (
+                batch_size,
+                sequence_length,
+                feature_dimension,
+            )
+
+            For the current project this is normally:
+
+            (
+                None,
+                250,
+                128,
+            )
         """
 
+        # ---------------------------------------------------------
+        # 1. Build the position-wise Dense layer
+        # ---------------------------------------------------------
+
+        self.position_layer.build(
+            input_shape
+        )
+
+        # Output of position_layer:
+        #
+        # (
+        #     batch_size,
+        #     sequence_length,
+        #     position_dim,
+        # )
+
+        position_output_shape = (
+            input_shape[0],
+            input_shape[1],
+            self.position_dim,
+        )
+
+        # ---------------------------------------------------------
+        # 2. Build Dropout and Flatten
+        # ---------------------------------------------------------
+
+        self.dropout_layer.build(
+            position_output_shape
+        )
+
+        self.flatten_layer.build(
+            position_output_shape
+        )
+
+        # ---------------------------------------------------------
+        # 3. Compute flattened feature dimension
+        # ---------------------------------------------------------
+
+        sequence_length = input_shape[1]
+
+        if sequence_length is None:
+            raise ValueError(
+                "SequenceConditionSubnet requires a fixed "
+                "sequence length. The current model expects "
+                "sequences padded to length 250."
+            )
+
+        flattened_dimension = (
+                sequence_length
+                * self.position_dim
+        )
+
+        # ---------------------------------------------------------
+        # 4. Build the final Dense layer
+        # ---------------------------------------------------------
+
+        self.output_layer.build(
+            (
+                input_shape[0],
+                flattened_dimension,
+            )
+        )
+
+        # ---------------------------------------------------------
+        # 5. Mark the custom layer as built
+        # ---------------------------------------------------------
+
+        super().build(input_shape)
+
+    def call(
+            self,
+            inputs,
+            mask=None,
+            training: bool = False,
+    ):
+        """
+        Convert sequence-level BiLSTM features into
+        a fixed-size condition vector.
+
+        Parameters
+        ----------
+        inputs:
+            Sequence features with shape:
+
+            (
+                batch_size,
+                sequence_length,
+                feature_dimension,
+            )
+
+        mask:
+            Valid-position mask with shape:
+
+            (
+                batch_size,
+                sequence_length,
+            )
+
+        training:
+            Whether the layer is being used during training.
+
+        Returns
+        -------
+        Tensor with shape:
+
+            (
+                batch_size,
+                output_dim,
+            )
+        """
+
+        # ---------------------------------------------------------
+        # 1. Position-wise feature transformation
+        # ---------------------------------------------------------
+
         hidden = self.position_layer(
-            sequence_features,
+            inputs
         )
 
         hidden = self.dropout_layer(
@@ -84,17 +212,38 @@ class SequenceConditionSubnet(keras.layers.Layer):
             training=training,
         )
 
+        # ---------------------------------------------------------
+        # 2. Explicitly zero padded positions
+        # ---------------------------------------------------------
+
         if mask is not None:
-            mask = keras.ops.cast(
+            numeric_mask = keras.ops.cast(
                 mask,
                 hidden.dtype,
             )
 
-            hidden = hidden * mask[..., None]
+            hidden = (
+                    hidden
+                    * numeric_mask[..., None]
+            )
 
-        hidden = self.flatten_layer(hidden)
+        # ---------------------------------------------------------
+        # 3. Flatten all sequence positions
+        # ---------------------------------------------------------
 
-        return self.output_layer(hidden)
+        hidden = self.flatten_layer(
+            hidden
+        )
+
+        # ---------------------------------------------------------
+        # 4. Create final condition vector
+        # ---------------------------------------------------------
+
+        conditions = self.output_layer(
+            hidden
+        )
+
+        return conditions
 
     def compute_output_shape(
         self,
