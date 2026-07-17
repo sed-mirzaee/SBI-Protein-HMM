@@ -1,10 +1,9 @@
-"""Check the official BayesFlow adapter for protein training pairs."""
+"""Check the official BayesFlow Adapter for protein training pairs."""
 
 from __future__ import annotations
 
 import os
 
-# Set before importing BayesFlow / Keras.
 os.environ.setdefault(
     "KERAS_BACKEND",
     "torch",
@@ -25,7 +24,7 @@ from src.bayesflow_model.summary_network import (
 
 def main() -> None:
     # ---------------------------------------------------------
-    # 1. Load a very small subset of the existing offline data
+    # 1. Load raw offline training pairs
     # ---------------------------------------------------------
     raw_data = prepare_bayesflow_data(
         split_name="train",
@@ -54,7 +53,7 @@ def main() -> None:
     )
 
     # ---------------------------------------------------------
-    # 2. Basic checks before adaptation
+    # 2. Check raw contract
     # ---------------------------------------------------------
     assert raw_data["protein_sequence"].shape == (
         8,
@@ -78,20 +77,34 @@ def main() -> None:
         250,
     )
 
+    assert raw_data["encoder_mask"].dtype == np.bool_
+    assert raw_data["target_mask"].dtype == np.bool_
+
     assert np.array_equal(
         raw_data["encoder_mask"],
         raw_data["target_mask"],
     )
 
     # ---------------------------------------------------------
-    # 3. Apply the official BayesFlow adapter
+    # 3. Run the official BayesFlow Adapter
     # ---------------------------------------------------------
     adapter = build_protein_adapter()
 
-    adapted_data = adapter(raw_data)
+    adapted_data = adapter(
+        raw_data
+    )
 
     print("\nAdapted data keys:")
     print(sorted(adapted_data.keys()))
+
+    expected_keys = {
+        "summary_variables",
+        "inference_variables",
+        "summary_mask",
+        "inference_mask",
+    }
+
+    assert set(adapted_data.keys()) == expected_keys
 
     summary_variables = adapted_data[
         "summary_variables"
@@ -146,7 +159,7 @@ def main() -> None:
     )
 
     # ---------------------------------------------------------
-    # 4. Check exact shapes after adaptation
+    # 4. Validate adapted shapes and dtypes
     # ---------------------------------------------------------
     assert summary_variables.shape == (
         8,
@@ -170,36 +183,45 @@ def main() -> None:
         250,
     )
 
-    # ---------------------------------------------------------
-    # Check dtypes produced by the official adapter
-    # ---------------------------------------------------------
-
     assert summary_variables.dtype == np.float32
     assert inference_variables.dtype == np.float32
 
-    # BayesFlow's default adapter converts masks to float32.
+    # The official Adapter converts masks to float32.
     assert summary_mask.dtype == np.float32
     assert inference_mask.dtype == np.float32
 
-    # Masks must contain only zero and one.
+    # Mask values must remain binary.
     assert np.all(
-        np.isin(summary_mask, [0.0, 1.0])
+        np.isin(
+            summary_mask,
+            [0.0, 1.0],
+        )
     )
 
     assert np.all(
-        np.isin(inference_mask, [0.0, 1.0])
+        np.isin(
+            inference_mask,
+            [0.0, 1.0],
+        )
     )
 
-    # Convert to Boolean for NumPy indexing and validation.
-    summary_mask_bool = summary_mask > 0.5
-    inference_mask_bool = inference_mask > 0.5
+    # Convert masks to Boolean for NumPy indexing.
+    summary_mask_bool = (
+        summary_mask > 0.5
+    )
 
+    inference_mask_bool = (
+        inference_mask > 0.5
+    )
+
+    # ---------------------------------------------------------
+    # 5. Confirm masks were preserved
+    # ---------------------------------------------------------
     assert np.array_equal(
         summary_mask_bool,
         inference_mask_bool,
     )
 
-    # Verify that the adapted masks match the original masks.
     assert np.array_equal(
         summary_mask_bool,
         raw_data["encoder_mask"],
@@ -210,7 +232,9 @@ def main() -> None:
         raw_data["target_mask"],
     )
 
-    # Adapter must not alter the data values.
+    # ---------------------------------------------------------
+    # 6. Confirm x and y were preserved
+    # ---------------------------------------------------------
     assert np.array_equal(
         summary_variables,
         raw_data["protein_sequence"],
@@ -222,52 +246,57 @@ def main() -> None:
     )
 
     # ---------------------------------------------------------
-    # 5. Validate x and y only at real sequence positions
+    # 7. Validate real and padded positions
     # ---------------------------------------------------------
     valid_x = summary_variables[
-        summary_mask
-    ]
-
-    valid_y = inference_variables[
-        inference_mask
+        summary_mask_bool
     ]
 
     padded_x = summary_variables[
-        ~summary_mask
+        ~summary_mask_bool
+    ]
+
+    valid_y = inference_variables[
+        inference_mask_bool
     ]
 
     padded_y = inference_variables[
-        ~inference_mask
+        ~inference_mask_bool
     ]
 
     assert np.isfinite(valid_x).all()
     assert np.isfinite(valid_y).all()
 
-    # Every real amino acid is one-hot encoded.
+    # Real input rows are one-hot encoded.
     assert np.allclose(
         valid_x.sum(axis=-1),
         1.0,
         atol=1e-6,
     )
 
-    # Every padded input row is all zero.
+    # Padded input rows contain only zeros.
     assert np.allclose(
         padded_x,
         0.0,
         atol=1e-7,
     )
 
-    # Every valid Forward-Backward posterior row sums to one.
+    # Real target rows are posterior probabilities.
     assert np.allclose(
         valid_y.sum(axis=-1),
         1.0,
         atol=1e-5,
     )
 
-    assert np.all(valid_y >= 0.0)
-    assert np.all(valid_y <= 1.0)
+    assert np.all(
+        valid_y >= 0.0
+    )
 
-    # The saved dataset currently also uses zero targets for padding.
+    assert np.all(
+        valid_y <= 1.0
+    )
+
+    # Padded target rows contain only zeros.
     assert np.allclose(
         padded_y,
         0.0,
@@ -275,8 +304,7 @@ def main() -> None:
     )
 
     # ---------------------------------------------------------
-    # 6. Confirm that the adapted x and summary_mask work
-    #    with the sequence-preserving BiLSTM
+    # 8. Test adapted input with the BiLSTM
     # ---------------------------------------------------------
     encoder = ProteinBiLSTMSequenceNetwork(
         hidden_dim=64,
@@ -304,22 +332,25 @@ def main() -> None:
         128,
     )
 
+    assert sequence_features.dtype == np.float32
+
     assert np.isfinite(
         sequence_features
     ).all()
 
     # ---------------------------------------------------------
-    # 7. Final result
+    # 9. Result
     # ---------------------------------------------------------
     print()
     print("✓ Raw offline pairs (x, y) loaded")
-    print("✓ Official BayesFlow adapter executed")
+    print("✓ Official BayesFlow Adapter executed")
     print("✓ x mapped to summary_variables")
     print("✓ y mapped to inference_variables")
-    print("✓ encoder mask mapped to summary_mask")
-    print("✓ target mask mapped to inference_mask")
-    print("✓ Adapter preserved all array values")
-    print("✓ BiLSTM accepted the adapted sequence and mask")
+    print("✓ encoder_mask mapped to summary_mask")
+    print("✓ target_mask mapped to inference_mask")
+    print("✓ Float masks converted safely for validation")
+    print("✓ Adapter preserved every array value")
+    print("✓ BiLSTM accepted adapted data and mask")
     print("✓ Adapter stage is ready")
 
 

@@ -1,8 +1,10 @@
-"""Sequence encoder for the protein HMM posterior estimator."""
+"""Sequence-preserving BiLSTM network for protein sequences."""
+
 from __future__ import annotations
 
 import os
 
+# Must be set before importing BayesFlow or Keras.
 os.environ.setdefault(
     "KERAS_BACKEND",
     "torch",
@@ -12,22 +14,36 @@ import bayesflow as bf
 import keras
 
 
-@bf.utils.serialization.serializable("sbi_protein_hmm")
+@bf.utils.serialization.serializable(
+    "sbi_protein_hmm"
+)
 class ProteinBiLSTMSequenceNetwork(
     bf.networks.SummaryNetwork
 ):
     """
-    Produce a contextual representation for every sequence position.
+    Produce one contextual feature vector per sequence position.
 
     Input:
         protein_sequence:
-            (batch_size, max_length, 20)
+            shape
+            (batch_size, sequence_length, 20)
 
         mask:
-            (batch_size, max_length)
+            shape
+            (batch_size, sequence_length)
 
     Output:
-        (batch_size, max_length, 2 * hidden_dim)
+        shape
+        (
+            batch_size,
+            sequence_length,
+            2 * hidden_dim,
+        )
+
+    With hidden_dim=64, each sequence position receives
+    128 contextual features:
+        64 from the forward LSTM
+        64 from the backward LSTM
     """
 
     def __init__(
@@ -40,6 +56,7 @@ class ProteinBiLSTMSequenceNetwork(
 
         self.hidden_dim = hidden_dim
         self.dropout_rate = dropout
+
         self.supports_masking = True
 
         self.bilstm = keras.layers.Bidirectional(
@@ -51,16 +68,22 @@ class ProteinBiLSTMSequenceNetwork(
         )
 
     def call(
-            self,
-            protein_sequence,
-            mask=None,
-            training: bool = False,
-            **kwargs,
+        self,
+        protein_sequence,
+        mask=None,
+        training: bool = False,
+        **kwargs,
     ):
+        """
+        Encode every amino-acid position using both directions.
+        """
+
+        # BayesFlow's default Adapter converts masks
+        # to float32. Keras LSTM expects a Boolean mask.
         if mask is not None:
             mask = keras.ops.cast(
                 mask,
-                "bool",
+                dtype="bool",
             )
 
         return self.bilstm(
@@ -70,89 +93,26 @@ class ProteinBiLSTMSequenceNetwork(
         )
 
     def compute_mask(
-        self,
-        inputs,
-        mask=None,
+            self,
+            inputs,
+            mask=None,
     ):
-        # Output is still sequence-shaped, so preserve the mask.
-        return mask
+        """
+        Do not propagate the Keras mask downstream.
 
-    def get_config(self) -> dict:
-        config = super().get_config()
-
-        config.update(
-            {
-                "hidden_dim": self.hidden_dim,
-                "dropout": self.dropout_rate,
-            }
-        )
-
-        return config
-
-@bf.utils.serialization.serializable("sbi_protein_hmm")
-class ProteinBiLSTMSummaryNetwork(
-    bf.networks.SummaryNetwork
-):
-    def __init__(
-        self,
-        hidden_dim: int = 64,
-        summary_dim: int = 64,
-        dropout: float = 0.10,
-        **kwargs,
-    ) -> None:
-        super().__init__(**kwargs)
-
-        self.supports_masking = True
-
-        self.hidden_dim = hidden_dim
-        self.summary_dim = summary_dim
-        self.dropout_rate = dropout
-
-        self.bilstm = keras.layers.Bidirectional(
-            keras.layers.LSTM(
-                units=hidden_dim,
-                return_sequences=False,
-                dropout=dropout,
-            )
-        )
-
-        self.summary_layer = keras.layers.Dense(
-            units=summary_dim,
-            activation="relu",
-        )
-
-    def call(
-        self,
-        inputs: dict,
-        training: bool = False,
-        **kwargs,
-    ):
-        protein_sequence = inputs["protein_sequence"]
-        sequence_mask = inputs["sequence_mask"]
-
-        summary = self.bilstm(
-            protein_sequence,
-            mask=sequence_mask,
-            training=training,
-        )
-
-        return self.summary_layer(summary)
-
-    def compute_mask(
-        self,
-        inputs,
-        mask=None,
-    ):
-        # The result is one fixed-size vector per protein.
+        The mask has already been used by the BiLSTM.
+        Target padding is handled separately through sample weights.
+        """
         return None
 
     def get_config(self) -> dict:
+        """Return configuration for Keras serialization."""
+
         config = super().get_config()
 
         config.update(
             {
                 "hidden_dim": self.hidden_dim,
-                "summary_dim": self.summary_dim,
                 "dropout": self.dropout_rate,
             }
         )

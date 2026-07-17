@@ -1,4 +1,4 @@
-"""Load the offline protein datasets for native BayesFlow training."""
+"""Load offline protein datasets for native BayesFlow training."""
 
 from __future__ import annotations
 
@@ -15,14 +15,18 @@ DATA_DIR = PROJECT_ROOT / "data" / "synthetic"
 
 def get_split_path(split_name: str) -> Path:
     """
-    Return the dataset path for the selected experiment.
+    Return the dataset path for one experiment split.
 
-    The suffix identifies the training run. For example,
-    validation_15000.npz belongs to the experiment trained
-    with 15,000 training sequences.
+    The filename suffix identifies the training experiment.
+    For example, validation_15000.npz belongs to the experiment
+    whose training set contains 15,000 sequences.
     """
 
-    valid_splits = {"train", "validation", "test"}
+    valid_splits = {
+        "train",
+        "validation",
+        "test",
+    }
 
     if split_name not in valid_splits:
         raise ValueError(
@@ -37,14 +41,16 @@ def load_split(
     split_name: str,
     limit: int | None = None,
 ) -> dict[str, np.ndarray]:
-    """Load and validate one saved synthetic split."""
+    """Load and validate one saved synthetic-data split."""
 
     path = get_split_path(split_name)
 
     if not path.exists():
-        raise FileNotFoundError(f"Dataset not found: {path}")
+        raise FileNotFoundError(
+            f"Dataset not found: {path}"
+        )
 
-    with np.load(path) as data:
+    with np.load(path) as stored_data:
         required_keys = {
             "x",
             "y",
@@ -53,7 +59,9 @@ def load_split(
             "hidden_states",
         }
 
-        missing_keys = required_keys.difference(data.files)
+        missing_keys = required_keys.difference(
+            stored_data.files
+        )
 
         if missing_keys:
             raise KeyError(
@@ -61,94 +69,193 @@ def load_split(
                 f"{sorted(missing_keys)}"
             )
 
-        result = {
-            "x": data["x"].astype(np.float32),
-            "y": data["y"].astype(np.float32),
-            "mask": data["mask"].astype(bool),
-            "lengths": data["lengths"].astype(np.int32),
-            "hidden_states": data["hidden_states"].astype(np.int32),
+        data = {
+            "x": stored_data["x"].astype(
+                np.float32
+            ),
+            "y": stored_data["y"].astype(
+                np.float32
+            ),
+            "mask": stored_data["mask"].astype(
+                bool
+            ),
+            "lengths": stored_data["lengths"].astype(
+                np.int32
+            ),
+            "hidden_states": stored_data[
+                "hidden_states"
+            ].astype(np.int32),
         }
 
     if limit is not None:
         if limit <= 0:
-            raise ValueError("limit must be positive.")
+            raise ValueError(
+                "limit must be a positive integer."
+            )
 
-        result = {
+        data = {
             key: values[:limit]
-            for key, values in result.items()
+            for key, values in data.items()
         }
 
-    _validate_split(result, split_name)
+    _validate_split(
+        data=data,
+        split_name=split_name,
+    )
 
-    return result
+    return data
 
 
 def _validate_split(
     data: dict[str, np.ndarray],
     split_name: str,
 ) -> None:
-    """Check the stored data contract."""
+    """Validate shapes, masks and probability values."""
 
     x = data["x"]
     y = data["y"]
     mask = data["mask"]
     lengths = data["lengths"]
+    hidden_states = data["hidden_states"]
 
     if x.ndim != 3 or x.shape[-1] != 20:
         raise ValueError(
             f"{split_name}: x must have shape "
-            f"(samples, length, 20), got {x.shape}."
+            f"(samples, sequence_length, 20), "
+            f"but received {x.shape}."
         )
 
-    if y.shape != (*x.shape[:2], 2):
+    expected_y_shape = (
+        x.shape[0],
+        x.shape[1],
+        2,
+    )
+
+    if y.shape != expected_y_shape:
         raise ValueError(
             f"{split_name}: y must have shape "
-            f"{(*x.shape[:2], 2)}, got {y.shape}."
+            f"{expected_y_shape}, but received {y.shape}."
         )
 
-    if mask.shape != x.shape[:2]:
+    expected_mask_shape = x.shape[:2]
+
+    if mask.shape != expected_mask_shape:
         raise ValueError(
             f"{split_name}: mask must have shape "
-            f"{x.shape[:2]}, got {mask.shape}."
+            f"{expected_mask_shape}, "
+            f"but received {mask.shape}."
+        )
+
+    if hidden_states.shape != expected_mask_shape:
+        raise ValueError(
+            f"{split_name}: hidden_states must have shape "
+            f"{expected_mask_shape}, "
+            f"but received {hidden_states.shape}."
         )
 
     if lengths.shape != (x.shape[0],):
         raise ValueError(
-            f"{split_name}: lengths has wrong shape "
+            f"{split_name}: lengths must have shape "
+            f"({x.shape[0]},), but received "
             f"{lengths.shape}."
         )
 
-    if not np.array_equal(mask.sum(axis=1), lengths):
+    if not np.array_equal(
+        mask.sum(axis=1),
+        lengths,
+    ):
         raise ValueError(
-            f"{split_name}: mask and lengths are inconsistent."
+            f"{split_name}: mask and lengths "
+            f"are inconsistent."
         )
 
-    valid_y = y[mask]
-
     if not np.isfinite(x).all():
-        raise ValueError(f"{split_name}: x contains NaN or Inf.")
+        raise ValueError(
+            f"{split_name}: x contains NaN or Inf."
+        )
 
-    if not np.isfinite(valid_y).all():
-        raise ValueError(f"{split_name}: y contains NaN or Inf.")
+    if not np.isfinite(y).all():
+        raise ValueError(
+            f"{split_name}: y contains NaN or Inf."
+        )
 
+    valid_x = x[mask]
+    valid_y = y[mask]
+    padded_x = x[~mask]
+    padded_y = y[~mask]
+
+    # Every real amino acid must be one-hot encoded.
+    if not np.allclose(
+        valid_x.sum(axis=-1),
+        1.0,
+        atol=1e-6,
+    ):
+        raise ValueError(
+            f"{split_name}: valid amino-acid rows "
+            f"are not one-hot encoded."
+        )
+
+    # Padding rows must contain only zeros.
+    if not np.allclose(
+        padded_x,
+        0.0,
+        atol=1e-7,
+    ):
+        raise ValueError(
+            f"{split_name}: padded x positions "
+            f"are not all zero."
+        )
+
+    # Forward–Backward posterior probabilities.
     if not np.allclose(
         valid_y.sum(axis=-1),
         1.0,
         atol=1e-5,
     ):
         raise ValueError(
-            f"{split_name}: posterior rows do not sum to one."
+            f"{split_name}: valid posterior rows "
+            f"do not sum to one."
         )
+
+    if np.any(valid_y < 0.0) or np.any(
+        valid_y > 1.0
+    ):
+        raise ValueError(
+            f"{split_name}: posterior probabilities "
+            f"must lie between zero and one."
+        )
+
+    if not np.allclose(
+        padded_y,
+        0.0,
+        atol=1e-7,
+    ):
+        raise ValueError(
+            f"{split_name}: padded y positions "
+            f"are not all zero."
+        )
+
 
 def prepare_bayesflow_data(
     split_name: str,
     limit: int | None = None,
 ) -> dict[str, np.ndarray]:
     """
-    Prepare one offline dataset split for BayesFlow.
+    Prepare stored pairs for the BayesFlow Adapter.
 
-    The saved Forward-Backward probabilities are the training targets.
-    No new posterior is calculated here.
+    protein_sequence:
+        x, the padded one-hot amino-acid sequence.
+
+    state_probabilities:
+        y, the Forward–Backward posterior targets.
+
+    encoder_mask:
+        Mask forwarded to the BiLSTM summary network.
+
+    target_mask:
+        Mask forwarded to the inference component.
+
+    No Forward–Backward calculation is performed here.
     """
 
     data = load_split(
@@ -156,21 +263,16 @@ def prepare_bayesflow_data(
         limit=limit,
     )
 
-    protein_sequence = data["x"].astype(np.float32)
-    state_probabilities = data["y"].astype(np.float32)
     sequence_mask = data["mask"].astype(bool)
 
     return {
-        # Input x
-        "protein_sequence": protein_sequence,
+        "protein_sequence": data["x"],
+        "state_probabilities": data["y"],
 
-        # Target y, already calculated by Forward-Backward
-        "state_probabilities": state_probabilities,
-
-        # Same Boolean values, but two distinct roles
+        # Same values, but different roles.
         "encoder_mask": sequence_mask.copy(),
         "target_mask": sequence_mask.copy(),
 
-        # Kept in raw data for checks, but not required by the network
-        "sequence_lengths": data["lengths"].astype(np.int32),
+        # Retained for validation and later evaluation.
+        "sequence_lengths": data["lengths"],
     }

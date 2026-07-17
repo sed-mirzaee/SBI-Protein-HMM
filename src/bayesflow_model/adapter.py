@@ -1,4 +1,4 @@
-"""Official BayesFlow adapter for offline protein training pairs."""
+"""Official BayesFlow Adapter for offline protein training pairs."""
 
 from __future__ import annotations
 
@@ -14,33 +14,32 @@ import bayesflow as bf
 
 def build_protein_adapter() -> bf.adapters.Adapter:
     """
-    Map the project's raw offline data to BayesFlow's canonical keys.
+    Map project-specific keys to BayesFlow canonical keys.
 
-    Raw project keys:
+    Raw keys:
         protein_sequence
         state_probabilities
         encoder_mask
         target_mask
 
-    BayesFlow keys:
+    Adapted keys:
         summary_variables
         inference_variables
         summary_mask
         inference_mask
     """
 
-    adapter = bf.approximators.Approximator.build_adapter(
-        # y: Forward-Backward posterior targets
+    return bf.approximators.Approximator.build_adapter(
+        # y: Forward–Backward probabilities used as targets.
         inference_variables="state_probabilities",
 
-        # x: one-hot protein sequences
+        # x: padded one-hot protein sequences.
         summary_variables="protein_sequence",
 
-        # Padding mask passed as mask=... to the BiLSTM summary network
+        # Forwarded as mask=... to the summary network.
         summary_mask="encoder_mask",
 
-        # Padding mask passed to the later inference component
+        # Forwarded as mask=... to the later
+        # inference network.
         inference_mask="target_mask",
     )
-
-    return adapter

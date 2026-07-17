@@ -11,50 +11,112 @@ os.environ.setdefault(
 
 import numpy as np
 
-from src.bayesflow_model.data import prepare_bayesflow_data
+from src.bayesflow_model.data import (
+    prepare_bayesflow_data,
+)
 from src.bayesflow_model.summary_network import (
     ProteinBiLSTMSequenceNetwork,
 )
 
 
 def main() -> None:
+    # ---------------------------------------------------------
+    # 1. Load a small subset
+    # ---------------------------------------------------------
     data = prepare_bayesflow_data(
         split_name="train",
         limit=8,
     )
 
-    x = data["protein_sequence"]
-    mask = data["sequence_mask"]
+    protein_sequence = data[
+        "protein_sequence"
+    ]
 
-    print("Protein sequence shape:", x.shape)
-    print("Sequence mask shape:", mask.shape)
+    encoder_mask = data[
+        "encoder_mask"
+    ]
 
-    assert x.shape == (8, 250, 20)
-    assert mask.shape == (8, 250)
+    state_probabilities = data[
+        "state_probabilities"
+    ]
 
-    # Validate the stored data contract.
-    row_sums = x.sum(axis=-1)
+    print(
+        "Protein sequence shape:",
+        protein_sequence.shape,
+    )
 
+    print(
+        "Encoder mask shape:",
+        encoder_mask.shape,
+    )
+
+    print(
+        "Target shape:",
+        state_probabilities.shape,
+    )
+
+    # ---------------------------------------------------------
+    # 2. Validate input shapes
+    # ---------------------------------------------------------
+    assert protein_sequence.shape == (
+        8,
+        250,
+        20,
+    )
+
+    assert encoder_mask.shape == (
+        8,
+        250,
+    )
+
+    assert state_probabilities.shape == (
+        8,
+        250,
+        2,
+    )
+
+    assert encoder_mask.dtype == np.bool_
+
+    # ---------------------------------------------------------
+    # 3. Validate real and padded positions
+    # ---------------------------------------------------------
+    valid_x = protein_sequence[
+        encoder_mask
+    ]
+
+    padded_x = protein_sequence[
+        ~encoder_mask
+    ]
+
+    assert np.isfinite(
+        protein_sequence
+    ).all()
+
+    # Every real position is one-hot encoded.
     assert np.allclose(
-        row_sums[mask],
+        valid_x.sum(axis=-1),
         1.0,
         atol=1e-6,
     )
 
+    # Every padded position contains twenty zeros.
     assert np.allclose(
-        row_sums[~mask],
+        padded_x,
         0.0,
-        atol=1e-6,
+        atol=1e-7,
     )
 
+    # ---------------------------------------------------------
+    # 4. Run the sequence-preserving BiLSTM
+    # ---------------------------------------------------------
     network = ProteinBiLSTMSequenceNetwork(
         hidden_dim=64,
         dropout=0.10,
     )
 
     sequence_features = network(
-        x,
-        mask=mask,
+        protein_sequence,
+        mask=encoder_mask,
         training=False,
     )
 
@@ -72,19 +134,25 @@ def main() -> None:
         sequence_features.dtype,
     )
 
+    # 64 forward + 64 backward features.
     assert sequence_features.shape == (
         8,
         250,
         128,
     )
 
+    assert sequence_features.dtype == np.float32
+
     assert np.isfinite(
         sequence_features
     ).all()
 
+    # ---------------------------------------------------------
+    # 5. Result
+    # ---------------------------------------------------------
     print()
     print("✓ Offline data loaded")
-    print("✓ Stored mask used directly")
+    print("✓ Stored encoder mask used directly")
     print("✓ Valid positions are one-hot encoded")
     print("✓ Padding positions are all zero")
     print("✓ BiLSTM preserved all 250 positions")
