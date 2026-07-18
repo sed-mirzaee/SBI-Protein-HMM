@@ -74,8 +74,8 @@ def main() -> None:
     # ---------------------------------------------------------
 
     batch_size = 32
-    epochs = 10
-    learning_rate = 1e-3
+    epochs = 20
+    learning_rate = 5e-4
 
     train_limit = None
     validation_limit = None
@@ -130,8 +130,8 @@ def main() -> None:
     callbacks = [
         keras.callbacks.EarlyStopping(
             monitor="val_loss",
-            patience=5,
-            min_delta=1e-5,
+            patience=7,
+            min_delta=1e-6,
             restore_best_weights=True,
             verbose=1,
         ),

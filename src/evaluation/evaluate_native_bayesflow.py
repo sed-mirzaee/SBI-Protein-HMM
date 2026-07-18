@@ -163,6 +163,9 @@ def predict_batch(
 
     predictions = estimates["posterior_mean"]["value"]
 
+    if hasattr(predictions, "detach"):
+        predictions = predictions.detach().cpu().numpy()
+
     return np.asarray(
         predictions,
         dtype=np.float32,
