@@ -3,7 +3,6 @@ from pathlib import Path
 import numpy as np
 import torch
 from src.configs.config import (N_TRAIN_SAMPLES)
-from src.models.train_bayesflow import BiLSTMPosteriorEstimator
 
 DATA_PATH = Path(f"../../data/synthetic/train_{N_TRAIN_SAMPLES}.npz")
 
@@ -20,6 +19,7 @@ def main() -> None:
     y = data["y"]
     mask = data["mask"]
     lengths = data["lengths"]
+    hidden_states = data["hidden_states"]
 
     print("x shape:", x.shape)
     print("y shape:", y.shape)
@@ -69,24 +69,36 @@ def main() -> None:
     )
     print("Part3, No Problem.")
 
+    # ---------------------------------------------------------
+    # Part 4: Final dataset consistency checks
+    # ---------------------------------------------------------
 
-    x_batch = torch.tensor(x[:16], dtype=torch.float32)
-    y_batch = torch.tensor(y[:16], dtype=torch.float32)
-    mask_batch = torch.tensor(mask[:16], dtype=torch.bool)
+    assert x.shape[0] == y.shape[0]
+    assert x.shape[0] == mask.shape[0]
+    assert x.shape[0] == lengths.shape[0]
+    assert x.shape[0] == hidden_states.shape[0]
 
-    model = BiLSTMPosteriorEstimator()
+    assert x.shape[1] == y.shape[1]
+    assert x.shape[1] == mask.shape[1]
+    assert x.shape[1] == hidden_states.shape[1]
 
-    model.eval()
+    assert x.shape[2] == 20
+    assert y.shape[2] == 2
 
-    with torch.no_grad():
-        logits = model(x_batch)
+    # Valid positions in x must be one-hot encoded
+    valid_x = x[mask]
+    assert np.allclose(valid_x.sum(axis=1), 1.0)
 
-    print("Logits shape:", logits.shape)
+    # Valid posterior probabilities must sum to one
+    valid_y = y[mask]
+    assert np.allclose(valid_y.sum(axis=1), 1.0, atol=1e-6)
 
-    assert logits.shape == y_batch.shape
-    assert torch.isfinite(logits).all()
+    # Padded positions must be zero
+    assert np.allclose(x[~mask], 0.0)
+    assert np.allclose(y[~mask], 0.0)
 
-    print("Forward pass successful!")
+    print("Part4, No Problem.")
+    print("\nDataset generation check passed successfully.")
 
 if __name__ == "__main__":
     main()

@@ -73,31 +73,10 @@ def main() -> None:
     # Configuration
     # ---------------------------------------------------------
 
-    # batch_size = 32
-    # epochs = 30
-    #
-    # # For the first smoke run use:
-    # #
-    # # train_limit = 256
-    # # validation_limit = 64
-    # # epochs = 2
-    # #
-    # # For final training use None.
-    # train_limit = None
-    # validation_limit = None
-
-    learning_rate = 1e-3
-
     batch_size = 32
     epochs = 10
     learning_rate = 1e-3
 
-    # Use the complete current dataset:
-    #
-    # train      = 2000 sequences
-    # validation = 250 sequences
-    #
-    # None means: do not limit the available split.
     train_limit = None
     validation_limit = None
 

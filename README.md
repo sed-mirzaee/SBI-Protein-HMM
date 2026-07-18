@@ -14,7 +14,7 @@ Course project on simulation-based inference using Hidden Markov Models and Baye
 
                  │
 
-          Simulator
+          Simulator (Offline)
 
                  │
 
@@ -58,17 +58,27 @@ Course project on simulation-based inference using Hidden Markov Models and Baye
 - Synthetic and real-protein evaluations completed
 - Unit tests added
 
-## Run Tests
+## Check Components
 
-pytest -q
+src.scripts.check_simulator.py
+src.scripts.check_encoding.py
+src.scripts.check_forward_backward.py
+src.scripts.check_generate_dataset.py 
+src.scripts.check_adapter
+src.scripts.check_summary_network
+src.scripts.check_inference_network
+src.scripts.check_approximator
+src.scripts.check_real_protein_inference
+
 
 ## Run Inference
 
-python -m src.scripts.check_trained_model
+python -m src.scripts.check_saved_native_model
 
 ## Run Final Evaluation
 
-python -m src.evaluate_final
+python -m 
+src.bayesflow_model.evaluate_native_bayesflow
 
 ## Create Figures
 
