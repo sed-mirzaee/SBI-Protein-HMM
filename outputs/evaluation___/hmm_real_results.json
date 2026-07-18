@@ -1,0 +1,13 @@
+{
+  "requested_proteins": 1000,
+  "evaluated_proteins": 1000,
+  "skipped_proteins": 0,
+  "evaluated_positions": 257971,
+  "hmm_state_accuracy": 0.7194219505293231,
+  "alpha_count": 89631,
+  "other_count": 168340,
+  "alpha_fraction": 0.347446030755395,
+  "other_fraction": 0.652553969244605,
+  "always_other_baseline": 0.652553969244605,
+  "improvement_over_baseline": 0.06686798128471816
+}

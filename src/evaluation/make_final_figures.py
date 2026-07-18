@@ -1,5 +1,16 @@
 """
-Create the seven final figures for the SBI Protein HMM project.
+Create final presentation/report figures___ for the native BayesFlow model.
+
+The script reads already-saved outputs from:
+
+    outputs/native_bayesflow/training_<N>/
+    outputs/native_bayesflow/evaluation/
+
+It does not load the model and does not run inference again.
+
+Run from the project root:
+
+    python -m src.evaluation.make_final_figures
 """
 
 from __future__ import annotations
@@ -9,110 +20,137 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-import torch
 
-from src.models.amortized_posterior import load_trained_model
+from src.configs.config import N_TRAIN_SAMPLES
 
-
-# ============================================================
-# Paths
-# ============================================================
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
+TRAINING_DIR = (
+    PROJECT_ROOT
+    / "outputs"
+    / "native_bayesflow"
+    / f"training_{N_TRAIN_SAMPLES}"
+)
+
+EVALUATION_DIR = (
+    PROJECT_ROOT
+    / "outputs"
+    / "native_bayesflow"
+    / "evaluation"
+)
+
+FIGURE_DIR = (
+    PROJECT_ROOT
+    / "outputs"
+    / "native_bayesflow"
+    / "figures___"
+)
+
 HISTORY_PATH = (
-    PROJECT_ROOT / "outputs" / "models" / "final_training_history.json"
+    TRAINING_DIR
+    / f"training_history_{N_TRAIN_SAMPLES}.npz"
 )
+
+SYNTHETIC_PREDICTIONS_PATH = (
+    EVALUATION_DIR
+    / f"test_predictions_{N_TRAIN_SAMPLES}.npz"
+)
+
+REAL_PREDICTIONS_PATH = (
+    EVALUATION_DIR
+    / f"real_protein_predictions_{N_TRAIN_SAMPLES}.npz"
+)
+
 RESULTS_PATH = (
-    PROJECT_ROOT / "outputs" / "evaluation" / "final_results.json"
+    EVALUATION_DIR
+    / f"evaluation_results_{N_TRAIN_SAMPLES}.json"
 )
-TEST_DATA_PATH = (
-    PROJECT_ROOT / "data" / "synthetic" / "test_2000.npz"
-)
-MODEL_PATH = (
-    PROJECT_ROOT / "outputs" / "models" / "amortized_posterior.pt"
-)
-FIGURE_DIR = PROJECT_ROOT / "outputs" / "figures"
 
 
-# ============================================================
-# General helpers
-# ============================================================
+def save_figure(
+    figure: plt.Figure,
+    filename: str,
+) -> None:
+    """Save one figure and close it."""
 
-def save_figure(filename: str) -> None:
-    """Save the current matplotlib figure."""
-    FIGURE_DIR.mkdir(parents=True, exist_ok=True)
+    FIGURE_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
     output_path = FIGURE_DIR / filename
 
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=300, bbox_inches="tight")
-    plt.close()
+    figure.tight_layout()
+    figure.savefig(
+        output_path,
+        dpi=300,
+        bbox_inches="tight",
+    )
+    plt.close(figure)
 
     print(f"Saved: {output_path}")
 
 
-def load_json(path: Path) -> dict:
-    """Read a JSON file."""
+def load_npz(path: Path) -> dict[str, np.ndarray]:
+    """Load all arrays from one npz file."""
+
     if not path.exists():
-        raise FileNotFoundError(f"File not found: {path}")
+        raise FileNotFoundError(
+            f"File not found:\n{path}"
+        )
 
-    with path.open("r", encoding="utf-8") as file:
-        return json.load(file)
-
-
-def load_test_data() -> dict[str, np.ndarray]:
-    """Load the final synthetic test dataset."""
-    if not TEST_DATA_PATH.exists():
-        raise FileNotFoundError(f"File not found: {TEST_DATA_PATH}")
-
-    with np.load(TEST_DATA_PATH) as data:
+    with np.load(
+        path,
+        allow_pickle=False,
+    ) as data:
         return {
-            "x": data["x"].astype(np.float32),
-            "y": data["y"].astype(np.float32),
-            "mask": data["mask"].astype(bool),
-            "lengths": data["lengths"].astype(int),
-            "hidden_states": data["hidden_states"].astype(int),
+            key: data[key]
+            for key in data.files
         }
 
 
-def predict_test_posteriors(
-    x: np.ndarray,
-    batch_size: int = 64,
+def load_json(path: Path) -> dict:
+    """Load one JSON file."""
+
+    if not path.exists():
+        raise FileNotFoundError(
+            f"File not found:\n{path}"
+        )
+
+    with path.open(
+        mode="r",
+        encoding="utf-8",
+    ) as file:
+        return json.load(file)
+
+
+def get_history_array(
+    history: dict[str, np.ndarray],
+    possible_names: tuple[str, ...],
 ) -> np.ndarray:
     """
-    Predict posterior probabilities for all padded test sequences.
+    Return the first available training-history series.
 
-    Output shape:
-        (num_sequences, max_length, 2)
+    Keras usually saves loss and val_loss, but this helper
+    keeps the plotting script robust to slightly different names.
     """
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model = load_trained_model(
-        model_path=MODEL_PATH,
-        device=device,
+    for name in possible_names:
+        if name in history:
+            values = np.asarray(
+                history[name],
+                dtype=float,
+            ).reshape(-1)
+
+            if values.size > 0:
+                return values
+
+    raise KeyError(
+        "None of these history keys were found: "
+        f"{possible_names}. "
+        f"Available keys: {sorted(history)}"
     )
-    model.eval()
-
-    predictions: list[np.ndarray] = []
-
-    with torch.no_grad():
-        for start in range(0, len(x), batch_size):
-            end = min(start + batch_size, len(x))
-
-            x_batch = torch.tensor(
-                x[start:end],
-                dtype=torch.float32,
-                device=device,
-            )
-
-            logits = model(x_batch)
-            probabilities = torch.softmax(logits, dim=-1)
-
-            predictions.append(
-                probabilities.cpu().numpy().astype(np.float32)
-            )
-
-    return np.concatenate(predictions, axis=0)
 
 
 def confusion_matrix_binary(
@@ -120,24 +158,72 @@ def confusion_matrix_binary(
     predicted_states: np.ndarray,
 ) -> np.ndarray:
     """
-    Compute a 2x2 confusion matrix.
+    Compute a 2 x 2 confusion matrix.
 
-    State order:
-        0 = other
-        1 = alpha
+    Row: true state
+    Column: predicted state
+
+    State 0 = other
+    State 1 = alpha
     """
-    true_states = np.asarray(true_states).ravel()
-    predicted_states = np.asarray(predicted_states).ravel()
 
-    matrix = np.zeros((2, 2), dtype=int)
+    true_states = np.asarray(
+        true_states,
+        dtype=int,
+    ).reshape(-1)
+
+    predicted_states = np.asarray(
+        predicted_states,
+        dtype=int,
+    ).reshape(-1)
+
+    if true_states.shape != predicted_states.shape:
+        raise ValueError(
+            "True and predicted states have "
+            "different shapes."
+        )
+
+    matrix = np.zeros(
+        (2, 2),
+        dtype=int,
+    )
 
     for true_value, predicted_value in zip(
         true_states,
         predicted_states,
     ):
-        matrix[int(true_value), int(predicted_value)] += 1
+        matrix[
+            int(true_value),
+            int(predicted_value),
+        ] += 1
 
     return matrix
+
+
+def add_bar_labels(
+    axis: plt.Axes,
+    bars,
+    values: list[float],
+    percentage: bool = False,
+) -> None:
+    """Add readable labels above bars."""
+
+    if percentage:
+        labels = [
+            f"{value * 100:.2f}%"
+            for value in values
+        ]
+    else:
+        labels = [
+            f"{value:.6f}"
+            for value in values
+        ]
+
+    axis.bar_label(
+        bars,
+        labels=labels,
+        padding=4,
+    )
 
 
 def plot_confusion_matrix(
@@ -145,32 +231,65 @@ def plot_confusion_matrix(
     title: str,
     filename: str,
 ) -> None:
-    """Plot one confusion matrix with counts and row percentages."""
-    row_totals = matrix.sum(axis=1, keepdims=True)
+    """Plot counts and row percentages."""
+
+    row_totals = matrix.sum(
+        axis=1,
+        keepdims=True,
+    )
+
     row_percentages = np.divide(
         matrix,
         row_totals,
-        out=np.zeros_like(matrix, dtype=float),
+        out=np.zeros_like(
+            matrix,
+            dtype=float,
+        ),
         where=row_totals != 0,
     )
 
-    fig, ax = plt.subplots(figsize=(6, 5))
-    image = ax.imshow(row_percentages, vmin=0, vmax=1)
+    figure, axis = plt.subplots(
+        figsize=(6, 5),
+    )
 
-    ax.set_title(title)
-    ax.set_xlabel("Predicted state")
-    ax.set_ylabel("True state")
+    image = axis.imshow(
+        row_percentages,
+        vmin=0.0,
+        vmax=1.0,
+    )
 
     labels = ["Other", "Alpha"]
-    ax.set_xticks([0, 1], labels=labels)
-    ax.set_yticks([0, 1], labels=labels)
+
+    axis.set_xticks(
+        [0, 1],
+        labels=labels,
+    )
+
+    axis.set_yticks(
+        [0, 1],
+        labels=labels,
+    )
+
+    axis.set_xlabel("Predicted state")
+    axis.set_ylabel("True state")
+    axis.set_title(title)
 
     for row in range(2):
         for column in range(2):
-            count = matrix[row, column]
-            percentage = row_percentages[row, column] * 100
+            count = matrix[
+                row,
+                column,
+            ]
 
-            ax.text(
+            percentage = (
+                row_percentages[
+                    row,
+                    column,
+                ]
+                * 100.0
+            )
+
+            axis.text(
                 column,
                 row,
                 f"{count:,}\n({percentage:.1f}%)",
@@ -178,293 +297,926 @@ def plot_confusion_matrix(
                 va="center",
             )
 
-    fig.colorbar(image, ax=ax, label="Row proportion")
-    save_figure(filename)
+    figure.colorbar(
+        image,
+        ax=axis,
+        label="Row proportion",
+    )
+
+    save_figure(
+        figure,
+        filename,
+    )
 
 
-# ============================================================
-# Figure 1: Training loss
-# ============================================================
+def figure_01_training_history(
+    history: dict[str, np.ndarray],
+) -> None:
+    """Plot training and validation loss together."""
 
-def figure_1_training_loss(history: dict) -> None:
-    epochs = np.arange(1, len(history["train_loss"]) + 1)
+    train_loss = get_history_array(
+        history,
+        (
+            "loss",
+            "train_loss",
+        ),
+    )
 
-    plt.figure(figsize=(8, 5))
-    plt.plot(
+    validation_loss = get_history_array(
+        history,
+        (
+            "val_loss",
+            "validation_loss",
+        ),
+    )
+
+    number_of_epochs = min(
+        len(train_loss),
+        len(validation_loss),
+    )
+
+    train_loss = train_loss[
+        :number_of_epochs
+    ]
+
+    validation_loss = validation_loss[
+        :number_of_epochs
+    ]
+
+    epochs = np.arange(
+        1,
+        number_of_epochs + 1,
+    )
+
+    best_index = int(
+        np.argmin(validation_loss)
+    )
+
+    best_epoch = best_index + 1
+    best_validation_loss = float(
+        validation_loss[best_index]
+    )
+
+    figure, axis = plt.subplots(
+        figsize=(9, 5),
+    )
+
+    axis.plot(
         epochs,
-        history["train_loss"],
+        train_loss,
         marker="o",
         label="Training loss",
     )
 
-    plt.xlabel("Epoch")
-    plt.ylabel("Soft cross-entropy loss")
-    plt.title("BiLSTM Training Loss")
-    plt.grid(alpha=0.3)
-    plt.legend()
-
-    save_figure("figure_01_training_loss.png")
-
-
-# ============================================================
-# Figure 2: Validation loss
-# ============================================================
-
-def figure_2_validation_loss(history: dict) -> None:
-    epochs = np.arange(1, len(history["val_loss"]) + 1)
-
-    best_epoch = int(np.argmin(history["val_loss"])) + 1
-    best_value = float(np.min(history["val_loss"]))
-
-    plt.figure(figsize=(8, 5))
-    plt.plot(
+    axis.plot(
         epochs,
-        history["val_loss"],
+        validation_loss,
         marker="o",
         label="Validation loss",
     )
 
-    plt.axvline(
+    axis.axvline(
         best_epoch,
         linestyle="--",
         label=f"Best epoch = {best_epoch}",
     )
 
-    plt.scatter(
+    axis.scatter(
         [best_epoch],
-        [best_value],
+        [best_validation_loss],
         zorder=3,
     )
 
-    plt.xlabel("Epoch")
-    plt.ylabel("Soft cross-entropy loss")
-    plt.title("BiLSTM Validation Loss")
-    plt.grid(alpha=0.3)
-    plt.legend()
+    axis.set_xlabel("Epoch")
+    axis.set_ylabel("Loss")
+    axis.set_title(
+        "Native BayesFlow Training History"
+    )
+    axis.grid(alpha=0.3)
+    axis.legend()
 
-    save_figure("figure_02_validation_loss.png")
-
-
-# ============================================================
-# Figure 3: Posterior MSE
-# ============================================================
-
-def figure_3_posterior_mse(results: dict) -> None:
-    mse = float(results["synthetic_test"]["posterior_mse"])
-
-    plt.figure(figsize=(6, 5))
-    bars = plt.bar(
-        ["NN vs.\nForward–Backward"],
-        [mse],
+    save_figure(
+        figure,
+        "figure_01_training_history.png",
     )
 
-    plt.ylabel("Posterior MSE")
-    plt.title("Synthetic Test: Posterior Approximation Error")
-    plt.ticklabel_format(axis="y", style="scientific", scilimits=(0, 0))
-    plt.grid(axis="y", alpha=0.3)
 
-    plt.bar_label(
-        bars,
-        labels=[f"{mse:.6g}"],
-        padding=5,
+def choose_synthetic_sequence(
+    hidden_states: np.ndarray,
+    lengths: np.ndarray,
+) -> int:
+    """
+    Choose a visually informative synthetic sequence.
+
+    The selected sequence has the greatest number of
+    hidden-state transitions.
+    """
+
+    best_index = 0
+    most_transitions = -1
+
+    for index, raw_length in enumerate(
+        lengths
+    ):
+        length = int(raw_length)
+
+        states = hidden_states[
+            index,
+            :length,
+        ]
+
+        if length <= 1:
+            transitions = 0
+        else:
+            transitions = int(
+                np.sum(
+                    states[1:]
+                    != states[:-1]
+                )
+            )
+
+        if transitions > most_transitions:
+            best_index = index
+            most_transitions = transitions
+
+    return best_index
+
+
+def figure_02_synthetic_posterior_example(
+    synthetic: dict[str, np.ndarray],
+) -> None:
+    """
+    Plot hidden states and posterior probabilities
+    for one synthetic protein.
+    """
+
+    predictions = synthetic["predictions"]
+    targets = synthetic["targets"]
+    hidden_states = synthetic[
+        "hidden_states"
+    ]
+    lengths = synthetic["lengths"]
+
+    sequence_index = choose_synthetic_sequence(
+        hidden_states=hidden_states,
+        lengths=lengths,
     )
 
-    save_figure("figure_03_posterior_mse.png")
+    length = int(
+        lengths[sequence_index]
+    )
 
+    positions = np.arange(
+        1,
+        length + 1,
+    )
 
-# ============================================================
-# Figure 4: Real-data accuracy comparison
-# ============================================================
-
-def figure_4_real_accuracy(results: dict) -> None:
-    real_results = results["real_protein_test"]
-
-    labels = ["Forward–Backward", "BiLSTM"]
-    values = [
-        float(real_results["hmm_state_accuracy"]),
-        float(real_results["nn_state_accuracy"]),
+    true_states = hidden_states[
+        sequence_index,
+        :length,
     ]
 
-    plt.figure(figsize=(7, 5))
-    bars = plt.bar(labels, values)
+    hmm_alpha = targets[
+        sequence_index,
+        :length,
+        1,
+    ]
 
-    lower_limit = max(0.0, min(values) - 0.03)
-    upper_limit = min(1.0, max(values) + 0.03)
+    neural_alpha = predictions[
+        sequence_index,
+        :length,
+        1,
+    ]
 
-    plt.ylim(lower_limit, upper_limit)
-    plt.ylabel("State accuracy")
-    plt.title("Real Protein Data: State Accuracy")
-    plt.grid(axis="y", alpha=0.3)
-
-    plt.bar_label(
-        bars,
-        labels=[f"{value * 100:.2f}%" for value in values],
-        padding=5,
+    figure, axis = plt.subplots(
+        figsize=(12, 5),
     )
 
-    save_figure("figure_04_real_accuracy.png")
-
-
-# ============================================================
-# Figures 5 and 6: Confusion matrices on synthetic test data
-# ============================================================
-
-def figures_5_and_6_confusion_matrices(
-    test_data: dict[str, np.ndarray],
-    nn_posteriors: np.ndarray,
-) -> None:
-    mask = test_data["mask"]
-
-    true_states = test_data["hidden_states"][mask]
-    hmm_states = np.argmax(test_data["y"], axis=-1)[mask]
-    nn_states = np.argmax(nn_posteriors, axis=-1)[mask]
-
-    hmm_matrix = confusion_matrix_binary(
-        true_states=true_states,
-        predicted_states=hmm_states,
-    )
-
-    nn_matrix = confusion_matrix_binary(
-        true_states=true_states,
-        predicted_states=nn_states,
-    )
-
-    plot_confusion_matrix(
-        matrix=hmm_matrix,
-        title="Synthetic Test: Forward–Backward vs. True States",
-        filename="figure_05_hmm_confusion_matrix.png",
-    )
-
-    plot_confusion_matrix(
-        matrix=nn_matrix,
-        title="Synthetic Test: BiLSTM vs. True States",
-        filename="figure_06_nn_confusion_matrix.png",
-    )
-
-
-# ============================================================
-# Figure 7: Posterior probabilities for one sequence
-# ============================================================
-
-def figure_7_sequence_posterior(
-    test_data: dict[str, np.ndarray],
-    nn_posteriors: np.ndarray,
-    sequence_index: int | None = None,
-) -> None:
-    """
-    Plot true hidden states, Forward–Backward posterior, and NN posterior.
-
-    If sequence_index is None, select a sequence with several state changes,
-    because it is more informative for the presentation.
-    """
-    lengths = test_data["lengths"]
-    hidden_states = test_data["hidden_states"]
-
-    if sequence_index is None:
-        best_index = 0
-        most_transitions = -1
-
-        for index, length in enumerate(lengths):
-            states = hidden_states[index, :length]
-            transitions = int(np.sum(states[1:] != states[:-1]))
-
-            if transitions > most_transitions:
-                best_index = index
-                most_transitions = transitions
-
-        sequence_index = best_index
-
-    length = int(lengths[sequence_index])
-    positions = np.arange(1, length + 1)
-
-    true_states = hidden_states[sequence_index, :length]
-    hmm_alpha = test_data["y"][sequence_index, :length, 1]
-    nn_alpha = nn_posteriors[sequence_index, :length, 1]
-
-    plt.figure(figsize=(12, 5))
-
-    plt.step(
+    axis.step(
         positions,
         true_states,
         where="mid",
-        linewidth=1.5,
-        label="True state (0=Other, 1=Alpha)",
+        linewidth=1.4,
+        label=(
+            "True state "
+            "(0=Other, 1=Alpha)"
+        ),
     )
 
-    plt.plot(
+    axis.plot(
         positions,
         hmm_alpha,
         linewidth=2,
-        label="Forward–Backward P(Alpha)",
+        label=(
+            "Forward–Backward "
+            "P(Alpha)"
+        ),
     )
 
-    plt.plot(
+    axis.plot(
         positions,
-        nn_alpha,
+        neural_alpha,
         linestyle="--",
         linewidth=2,
-        label="BiLSTM P(Alpha)",
+        label=(
+            "Native BayesFlow "
+            "P(Alpha)"
+        ),
     )
 
-    plt.axhline(
+    axis.axhline(
         0.5,
         linestyle=":",
         linewidth=1,
         label="Decision threshold = 0.5",
     )
 
-    plt.ylim(-0.05, 1.05)
-    plt.xlabel("Sequence position")
-    plt.ylabel("Alpha state / probability")
-    plt.title(
-        "Posterior Probabilities Along One Synthetic Protein "
-        f"(sequence {sequence_index}, length {length})"
+    axis.set_ylim(
+        -0.05,
+        1.05,
     )
-    plt.grid(alpha=0.3)
-    plt.legend(loc="best")
 
-    save_figure("figure_07_sequence_posterior.png")
+    axis.set_xlabel(
+        "Sequence position"
+    )
+
+    axis.set_ylabel(
+        "Alpha state / probability"
+    )
+
+    axis.set_title(
+        "Synthetic Protein: "
+        "Posterior Probability by Position"
+    )
+
+    axis.grid(alpha=0.3)
+    axis.legend(loc="best")
+
+    save_figure(
+        figure,
+        "figure_02_synthetic_posterior_example.png",
+    )
 
 
-# ============================================================
-# Main
-# ============================================================
+def figure_03_posterior_scatter(
+    synthetic: dict[str, np.ndarray],
+    maximum_points: int = 30000,
+) -> None:
+    """
+    Scatter plot of BayesFlow and Forward-Backward
+    alpha probabilities.
+    """
+
+    predictions = synthetic["predictions"]
+    targets = synthetic["targets"]
+    mask = synthetic["mask"].astype(bool)
+
+    target_alpha = targets[
+        :,
+        :,
+        1,
+    ][mask]
+
+    predicted_alpha = predictions[
+        :,
+        :,
+        1,
+    ][mask]
+
+    number_of_points = len(
+        target_alpha
+    )
+
+    if number_of_points > maximum_points:
+        random_generator = (
+            np.random.default_rng(123)
+        )
+
+        selected_indices = (
+            random_generator.choice(
+                number_of_points,
+                size=maximum_points,
+                replace=False,
+            )
+        )
+
+        target_alpha = target_alpha[
+            selected_indices
+        ]
+
+        predicted_alpha = predicted_alpha[
+            selected_indices
+        ]
+
+    figure, axis = plt.subplots(
+        figsize=(6, 6),
+    )
+
+    axis.scatter(
+        target_alpha,
+        predicted_alpha,
+        alpha=0.20,
+        s=8,
+    )
+
+    axis.plot(
+        [0, 1],
+        [0, 1],
+        linestyle="--",
+        label="Perfect agreement",
+    )
+
+    axis.set_xlim(0, 1)
+    axis.set_ylim(0, 1)
+
+    axis.set_xlabel(
+        "Forward–Backward P(Alpha)"
+    )
+
+    axis.set_ylabel(
+        "Native BayesFlow P(Alpha)"
+    )
+
+    axis.set_title(
+        "Synthetic Test: "
+        "Posterior Probability Agreement"
+    )
+
+    axis.grid(alpha=0.3)
+    axis.legend()
+
+    save_figure(
+        figure,
+        "figure_03_posterior_scatter.png",
+    )
+
+
+def figure_04_posterior_error_distribution(
+    synthetic: dict[str, np.ndarray],
+) -> None:
+    """Plot errors in alpha posterior probabilities."""
+
+    predictions = synthetic["predictions"]
+    targets = synthetic["targets"]
+    mask = synthetic["mask"].astype(bool)
+
+    errors = (
+        predictions[:, :, 1]
+        - targets[:, :, 1]
+    )[mask]
+
+    mean_error = float(
+        np.mean(errors)
+    )
+
+    figure, axis = plt.subplots(
+        figsize=(8, 5),
+    )
+
+    axis.hist(
+        errors,
+        bins=60,
+    )
+
+    axis.axvline(
+        0.0,
+        linestyle="--",
+        label="Zero error",
+    )
+
+    axis.axvline(
+        mean_error,
+        linestyle=":",
+        label=(
+            f"Mean error = "
+            f"{mean_error:.4f}"
+        ),
+    )
+
+    axis.set_xlabel(
+        "BayesFlow P(Alpha) "
+        "− Forward–Backward P(Alpha)"
+    )
+
+    axis.set_ylabel(
+        "Number of positions"
+    )
+
+    axis.set_title(
+        "Synthetic Test: "
+        "Posterior Error Distribution"
+    )
+
+    axis.grid(
+        axis="y",
+        alpha=0.3,
+    )
+
+    axis.legend()
+
+    save_figure(
+        figure,
+        "figure_04_posterior_error_distribution.png",
+    )
+
+
+def figure_05_synthetic_accuracy(
+    results: dict,
+) -> None:
+    """Compare main synthetic state metrics."""
+
+    metrics = results[
+        "synthetic_test"
+    ]
+
+    labels = [
+        "Forward–Backward\naccuracy",
+        "Native BayesFlow\naccuracy",
+        "Model/HMM\nagreement",
+    ]
+
+    values = [
+        float(
+            metrics[
+                "forward_backward_state_accuracy"
+            ]
+        ),
+        float(
+            metrics[
+                "neural_state_accuracy"
+            ]
+        ),
+        float(
+            metrics[
+                "neural_forward_backward_agreement"
+            ]
+        ),
+    ]
+
+    figure, axis = plt.subplots(
+        figsize=(8, 5),
+    )
+
+    bars = axis.bar(
+        labels,
+        values,
+    )
+
+    axis.set_ylim(0, 1.05)
+    axis.set_ylabel("Proportion")
+    axis.set_title(
+        "Synthetic Test: "
+        "State-Level Performance"
+    )
+
+    axis.grid(
+        axis="y",
+        alpha=0.3,
+    )
+
+    add_bar_labels(
+        axis=axis,
+        bars=bars,
+        values=values,
+        percentage=True,
+    )
+
+    save_figure(
+        figure,
+        "figure_05_synthetic_accuracy_comparison.png",
+    )
+
+
+def figures_06_and_07_synthetic_confusion(
+    synthetic: dict[str, np.ndarray],
+) -> None:
+    """Create two synthetic confusion matrices."""
+
+    mask = synthetic[
+        "mask"
+    ].astype(bool)
+
+    true_states = synthetic[
+        "hidden_states"
+    ][mask]
+
+    hmm_states = np.argmax(
+        synthetic["targets"],
+        axis=-1,
+    )[mask]
+
+    neural_states = np.argmax(
+        synthetic["predictions"],
+        axis=-1,
+    )[mask]
+
+    hmm_matrix = confusion_matrix_binary(
+        true_states=true_states,
+        predicted_states=hmm_states,
+    )
+
+    neural_matrix = confusion_matrix_binary(
+        true_states=true_states,
+        predicted_states=neural_states,
+    )
+
+    plot_confusion_matrix(
+        matrix=hmm_matrix,
+        title=(
+            "Synthetic Test: "
+            "Forward–Backward vs True States"
+        ),
+        filename=(
+            "figure_06_synthetic_hmm_confusion.png"
+        ),
+    )
+
+    plot_confusion_matrix(
+        matrix=neural_matrix,
+        title=(
+            "Synthetic Test: "
+            "Native BayesFlow vs True States"
+        ),
+        filename=(
+            "figure_07_synthetic_bayesflow_confusion.png"
+        ),
+    )
+
+
+def choose_real_sequence(
+    sequence_ids: np.ndarray,
+    ground_truth: np.ndarray,
+) -> int:
+    """
+    Choose an informative real sequence.
+
+    The selected sequence has the most annotation transitions.
+    """
+
+    unique_ids = np.unique(
+        sequence_ids
+    )
+
+    best_id = int(
+        unique_ids[0]
+    )
+
+    most_transitions = -1
+
+    for sequence_id in unique_ids:
+        selected = (
+            sequence_ids
+            == sequence_id
+        )
+
+        states = ground_truth[
+            selected
+        ]
+
+        transitions = int(
+            np.sum(
+                states[1:]
+                != states[:-1]
+            )
+        )
+
+        if transitions > most_transitions:
+            best_id = int(sequence_id)
+            most_transitions = transitions
+
+    return best_id
+
+
+def figure_08_real_posterior_example(
+    real: dict[str, np.ndarray],
+) -> None:
+    """
+    Plot annotation, Forward-Backward posterior,
+    and Native BayesFlow posterior for one real protein.
+    """
+
+    sequence_ids = real["sequence_id"]
+    positions = real["position"]
+    ground_truth = real["ground_truth"]
+
+    selected_id = choose_real_sequence(
+        sequence_ids=sequence_ids,
+        ground_truth=ground_truth,
+    )
+
+    selected = (
+        sequence_ids
+        == selected_id
+    )
+
+    selected_positions = positions[
+        selected
+    ]
+
+    true_states = ground_truth[
+        selected
+    ]
+
+    hmm_alpha = real[
+        "hmm_probabilities"
+    ][selected, 1]
+
+    neural_alpha = real[
+        "neural_probabilities"
+    ][selected, 1]
+
+    figure, axis = plt.subplots(
+        figsize=(12, 5),
+    )
+
+    axis.step(
+        selected_positions,
+        true_states,
+        where="mid",
+        linewidth=1.4,
+        label=(
+            "Real annotation "
+            "(0=Other, 1=Alpha)"
+        ),
+    )
+
+    axis.plot(
+        selected_positions,
+        hmm_alpha,
+        linewidth=2,
+        label=(
+            "Forward–Backward "
+            "P(Alpha)"
+        ),
+    )
+
+    axis.plot(
+        selected_positions,
+        neural_alpha,
+        linestyle="--",
+        linewidth=2,
+        label=(
+            "Native BayesFlow "
+            "P(Alpha)"
+        ),
+    )
+
+    axis.axhline(
+        0.5,
+        linestyle=":",
+        linewidth=1,
+        label="Decision threshold = 0.5",
+    )
+
+    axis.set_ylim(
+        -0.05,
+        1.05,
+    )
+
+    axis.set_xlabel(
+        "Protein position"
+    )
+
+    axis.set_ylabel(
+        "Alpha state / probability"
+    )
+
+    axis.set_title(
+        "Real Protein: "
+        "Posterior Probability by Position "
+        "(maximum 250 residues)"
+    )
+
+    axis.grid(alpha=0.3)
+    axis.legend(loc="best")
+
+    save_figure(
+        figure,
+        "figure_08_real_protein_posterior.png",
+    )
+
+
+def figure_09_real_accuracy(
+    results: dict,
+) -> None:
+    """
+    Compare real-data baseline, Forward-Backward,
+    and Native BayesFlow accuracy.
+    """
+
+    real_metrics = results.get(
+        "real_protein_test"
+    )
+
+    if real_metrics is None:
+        print(
+            "Skipping real accuracy figure: "
+            "real_protein_test is null."
+        )
+        return
+
+    labels = [
+        "Always Other\nbaseline",
+        "Forward–Backward",
+        "Native BayesFlow",
+    ]
+
+    values = [
+        float(
+            real_metrics[
+                "always_other_baseline"
+            ]
+        ),
+        float(
+            real_metrics[
+                "hmm_state_accuracy"
+            ]
+        ),
+        float(
+            real_metrics[
+                "neural_state_accuracy"
+            ]
+        ),
+    ]
+
+    figure, axis = plt.subplots(
+        figsize=(8, 5),
+    )
+
+    bars = axis.bar(
+        labels,
+        values,
+    )
+
+    axis.set_ylim(0, 1.05)
+    axis.set_ylabel("State accuracy")
+    axis.set_title(
+        "Real Protein Data: "
+        "Accuracy Comparison"
+    )
+
+    axis.grid(
+        axis="y",
+        alpha=0.3,
+    )
+
+    add_bar_labels(
+        axis=axis,
+        bars=bars,
+        values=values,
+        percentage=True,
+    )
+
+    save_figure(
+        figure,
+        "figure_09_real_accuracy_comparison.png",
+    )
+
+
+def figures_10_and_11_real_confusion(
+    real: dict[str, np.ndarray],
+) -> None:
+    """Create real-data confusion matrices."""
+
+    true_states = real[
+        "ground_truth"
+    ]
+
+    hmm_states = real[
+        "hmm_states"
+    ]
+
+    neural_states = real[
+        "neural_states"
+    ]
+
+    hmm_matrix = confusion_matrix_binary(
+        true_states=true_states,
+        predicted_states=hmm_states,
+    )
+
+    neural_matrix = confusion_matrix_binary(
+        true_states=true_states,
+        predicted_states=neural_states,
+    )
+
+    plot_confusion_matrix(
+        matrix=hmm_matrix,
+        title=(
+            "Real Proteins: "
+            "Forward–Backward vs Annotation"
+        ),
+        filename=(
+            "figure_10_real_hmm_confusion.png"
+        ),
+    )
+
+    plot_confusion_matrix(
+        matrix=neural_matrix,
+        title=(
+            "Real Proteins: "
+            "Native BayesFlow vs Annotation"
+        ),
+        filename=(
+            "figure_11_real_bayesflow_confusion.png"
+        ),
+    )
+
 
 def main() -> None:
+    """Create all available figures___."""
+
     print("Loading training history...")
-    history = load_json(HISTORY_PATH)
-
-    print("Loading final evaluation results...")
-    results = load_json(RESULTS_PATH)
-
-    print("Creating Figures 1-4...")
-    figure_1_training_loss(history)
-    figure_2_validation_loss(history)
-    figure_3_posterior_mse(results)
-    figure_4_real_accuracy(results)
-
-    print("Loading synthetic test data...")
-    test_data = load_test_data()
-
-    print("Predicting synthetic test posteriors...")
-    nn_posteriors = predict_test_posteriors(
-        x=test_data["x"],
-        batch_size=64,
+    history = load_npz(
+        HISTORY_PATH
     )
 
-    print("Creating Figures 5-7...")
-    figures_5_and_6_confusion_matrices(
-        test_data=test_data,
-        nn_posteriors=nn_posteriors,
+    print(
+        "Loading synthetic evaluation outputs..."
+    )
+    synthetic = load_npz(
+        SYNTHETIC_PREDICTIONS_PATH
     )
 
-    figure_7_sequence_posterior(
-        test_data=test_data,
-        nn_posteriors=nn_posteriors,
+    print(
+        "Loading evaluation metrics..."
+    )
+    results = load_json(
+        RESULTS_PATH
     )
 
-    print("\nAll figures were created successfully.")
-    print(f"Output directory: {FIGURE_DIR}")
+    print()
+    print("Creating training figure...")
+    figure_01_training_history(
+        history
+    )
+
+    print(
+        "Creating synthetic figures___..."
+    )
+    figure_02_synthetic_posterior_example(
+        synthetic
+    )
+    figure_03_posterior_scatter(
+        synthetic
+    )
+    figure_04_posterior_error_distribution(
+        synthetic
+    )
+    figure_05_synthetic_accuracy(
+        results
+    )
+    figures_06_and_07_synthetic_confusion(
+        synthetic
+    )
+
+    if REAL_PREDICTIONS_PATH.exists():
+        print(
+            "Loading real-protein outputs..."
+        )
+
+        real = load_npz(
+            REAL_PREDICTIONS_PATH
+        )
+
+        print(
+            "Creating real-protein figures___..."
+        )
+
+        figure_08_real_posterior_example(
+            real
+        )
+        figure_09_real_accuracy(
+            results
+        )
+        figures_10_and_11_real_confusion(
+            real
+        )
+    else:
+        print()
+        print(
+            "Real-protein prediction file "
+            "was not found."
+        )
+        print(
+            "Synthetic and training figures___ "
+            "were still created."
+        )
+        print(
+            "Missing file:"
+        )
+        print(
+            REAL_PREDICTIONS_PATH
+        )
+
+    print()
+    print(
+        "All available figures___ "
+        "were created successfully."
+    )
+    print(
+        f"Output directory:\n{FIGURE_DIR}"
+    )
 
 
 if __name__ == "__main__":

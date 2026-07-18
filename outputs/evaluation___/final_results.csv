@@ -1,0 +1,4 @@
+comparison,metric,value
+Synthetic: NN vs Forward-Backward,MSE,3.9578964962750804e-05
+Real: Forward-Backward vs Ground Truth,State Accuracy,0.7206595897565059
+Real: Neural Network vs Ground Truth,State Accuracy,0.7202373456401443
