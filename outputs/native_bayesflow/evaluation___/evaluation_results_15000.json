@@ -1,0 +1,33 @@
+{
+  "training_samples": 15000,
+  "synthetic_test": {
+    "number_of_sequences": 2000,
+    "number_of_valid_positions": 297243,
+    "mae": 0.02317810244858265,
+    "mse": 0.0008549414342269301,
+    "rmse": 0.02923938156368787,
+    "soft_cross_entropy": 0.5038475394248962,
+    "alpha_probability_mae": 0.02317810244858265,
+    "neural_state_accuracy": 0.7531514619351843,
+    "forward_backward_state_accuracy": 0.7539084183647723,
+    "neural_forward_backward_agreement": 0.9760498985678384
+  },
+  "real_protein_test": {
+    "evaluated_proteins": 500,
+    "skipped_proteins": 0,
+    "evaluated_positions": 93492,
+    "hmm_state_accuracy": 0.7270675565823814,
+    "neural_state_accuracy": 0.7234736661960381,
+    "hmm_neural_state_agreement": 0.9692594018739571,
+    "neural_hmm_posterior_mae": 0.028508290648460388,
+    "neural_hmm_posterior_mse": 0.0014430014416575432,
+    "alpha_probability_mae": 0.028508292511105537,
+    "alpha_count": 30896,
+    "other_count": 62596,
+    "alpha_fraction": 0.330466777906131,
+    "other_fraction": 0.669533222093869,
+    "always_other_baseline": 0.669533222093869,
+    "hmm_improvement_over_baseline": 0.05753433448851242,
+    "neural_improvement_over_baseline": 0.05394044410216914
+  }
+}
