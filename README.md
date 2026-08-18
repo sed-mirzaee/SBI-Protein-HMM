@@ -208,8 +208,8 @@ SBI-Protein-HMM/
 │
 ├── outputs/
 │   └── native_bayesflow/
-│       ├── evaluation/
-│       ├── figures/
+│       ├── evaluation___/
+│       ├── figures___/
 │       ├── real_protein/
 │       ├── training_2000/
 │       ├── training_8000/
@@ -392,7 +392,7 @@ The reported metrics include:
 Evaluation outputs are saved under:
 
 ```text
-outputs/native_bayesflow/evaluation/
+outputs/native_bayesflow/evaluation___/
 ```
 
 ---
@@ -450,7 +450,7 @@ Generated figures include:
 Figures are saved under:
 
 ```text
-outputs/native_bayesflow/figures/
+outputs/native_bayesflow/figures___/
 ```
 
 ---
